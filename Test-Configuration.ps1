@@ -41,8 +41,29 @@ if ($browserRules.Count -ne 8) {
 }
 
 $registryExclusions = @($configuration.SelectNodes("//RegistryEvent[@onmatch='exclude']"))
-if ($registryExclusions.Count -ne 0) {
-    throw 'RegistryEvent exclusions override browser includes and must be removed.'
+$approvedRuleName = 'Local noise tuning: MDE service key probes'
+if ($registryExclusions.Count -ne 1) {
+    throw "Expected one approved RegistryEvent exclusion group, found $($registryExclusions.Count)."
+}
+
+$registryExclusionRules = @($registryExclusions[0].SelectNodes('Rule'))
+if ($registryExclusionRules.Count -ne 1) {
+    throw 'The RegistryEvent exclusion group contains unapproved rules.'
+}
+
+$approvedRule = $registryExclusionRules[0]
+$approvedConditions = @($approvedRule.ChildNodes | Where-Object {
+    $_.NodeType -eq [System.Xml.XmlNodeType]::Element
+})
+if (
+    $approvedRule.GetAttribute('name') -ne $approvedRuleName -or
+    $approvedRule.groupRelation -ne 'and' -or
+    $approvedConditions.Count -ne 3 -or
+    $approvedRule.SelectNodes("Image[@condition='is' and text()='C:\Program Files\Windows Defender Advanced Threat Protection\MsSense.exe']").Count -ne 1 -or
+    $approvedRule.SelectNodes("EventType[@condition='is' and text()='CreateKey']").Count -ne 1 -or
+    $approvedRule.SelectNodes("TargetObject[@condition='begin with' and text()='HKLM\System\CurrentControlSet\Services\']").Count -ne 1
+) {
+    throw 'The approved MDE registry noise-tuning rule is missing or has changed.'
 }
 
 foreach ($root in $expectedRoots) {
@@ -66,6 +87,21 @@ foreach ($root in $expectedRoots) {
     }
 }
 
+$processAccessInclude = $configuration.SelectSingleNode("//ProcessAccess[@onmatch='include']")
+$appDataRules = @($processAccessInclude.SelectNodes("Rule[SourceImage[contains(text(),'\AppData\')]]"))
+if ($appDataRules.Count -ne 1) {
+    throw "Expected one broad AppData ProcessAccess rule, found $($appDataRules.Count)."
+}
+
+$appDataRule = $appDataRules[0]
+if (
+    $appDataRule.groupRelation -ne 'and' -or
+    $appDataRule.SelectNodes("SourceImage[@condition='not end with' and text()='\AppData\Local\Microsoft\Teams\current\Teams.exe']").Count -ne 1 -or
+    $appDataRule.SelectNodes("SourceImage[@condition='not end with' and text()='\AppData\Local\Programs\Microsoft VS Code\Code.exe']").Count -ne 1
+) {
+    throw 'The broad AppData ProcessAccess noise tuning is missing or has changed.'
+}
+
 [pscustomobject]@{
     Configuration = $resolvedConfig
     SchemaVersion = $configuration.DocumentElement.schemaversion
@@ -74,6 +110,8 @@ foreach ($root in $expectedRoots) {
     BrowserRuleNodes = $browserRules.Count
     ExtensionListLocations = $expectedRoots.Count * $extensionLists.Count
     RegistryExcludeGroups = $registryExclusions.Count
+    ApprovedRegistryNoiseRule = $approvedRuleName
+    VSCodeAppDataNoiseSuppressed = $true
     BrowserEventsUnconditionallyIncluded = $true
     Status = 'Valid'
 }

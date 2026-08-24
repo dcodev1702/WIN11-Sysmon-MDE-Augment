@@ -18,7 +18,8 @@ This project enables high-fidelity Sysmon telemetry that complements Microsoft D
 | [`win11-sysmon-mde-augment.xml`](win11-sysmon-mde-augment.xml) | Olaf's MDE augment configuration plus browser policy monitoring. |
 | [`Enable-Sysmon.ps1`](Enable-Sysmon.ps1) | Validates the XML, enables built-in Sysmon, and installs or updates the configuration. |
 | [`Test-Configuration.ps1`](Test-Configuration.ps1) | Verifies XML parsing and all browser policy rule boundaries. |
-| [`Protect-BrowserRegistryTelemetry.ps1`](Protect-BrowserRegistryTelemetry.ps1) | Removes competing registry exclusions after an upstream refresh so browser events cannot be suppressed. |
+| [`Protect-BrowserRegistryTelemetry.ps1`](Protect-BrowserRegistryTelemetry.ps1) | Replaces upstream registry exclusions with the single approved MDE noise rule while preserving browser telemetry. |
+| [`CHANGELOG.md`](CHANGELOG.md) | Chronological record of telemetry and tuning changes. |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Attribution and license notice for the upstream configuration. |
 
 ## ✅ Prerequisites
@@ -122,7 +123,7 @@ HKLM\SOFTWARE\WOW6432Node\Policies\Google\Chrome
 
 The XML maps these additions to MITRE ATT&CK **T1176: Browser Extensions**. The policy values beneath each list typically contain extension identifiers, so changes are useful for detecting unauthorized allowlisting, blocking, or silent force-installation.
 
-Because Sysmon exclusion rules take precedence over include rules, this configuration removes the upstream `RegistryEvent onmatch="exclude"` group. This guarantees create, modify, delete, and rename telemetry for the requested paths regardless of which process makes the change. Other event-family exclusions from the MDE augment profile remain unchanged.
+Because Sysmon exclusion rules take precedence over include rules, this configuration replaces the upstream `RegistryEvent onmatch="exclude"` group with one approved rule that can match only `MsSense.exe` `CreateKey` probes under `HKLM\System\CurrentControlSet\Services\`. It cannot match the Edge or Chrome policy roots, so create, modify, delete, and rename telemetry remains unconditional for the requested browser paths. Other event-family exclusions from the MDE augment profile remain unchanged.
 
 ## 🧪 Verify telemetry
 
@@ -170,6 +171,19 @@ Use this test only on a lab device or in an approved maintenance window. Remove 
 - Treat Sysmon events as evidence, not alerts; correlate them with MDE and identity/network telemetry.
 
 The MDE augment profile has intentional blind spots. Use Olaf's balanced or excludes-only profiles when the endpoint does not have MDE or when incident-response collection requires broader telemetry.
+
+## 🔇 Local noise tuning
+
+A retained-log baseline on **2026-08-24** measured **23,074 events in 267.5 seconds** (about **86.26 events/second**):
+
+| Source | Baseline share | Adjustment | Preserved security behavior |
+| --- | ---: | --- | --- |
+| Process Access ID 10 from per-user VS Code | 93.54% | Exempt VS Code only from the broad `AppData` masquerading include rule. | Separate LSASS, credential-dumping, injection, suspicious call-trace, and dangerous-access rules still apply. |
+| Registry ID 12 from `MsSense.exe` service-key probes | 4.36% | Exclude only `CreateKey` under `HKLM\System\CurrentControlSet\Services\` by the exact MDE image path. | Value changes, deletes, other images, and all Edge/Chrome policy telemetry remain included. |
+
+These are environment-observed suppressions, not general endorsements to ignore VS Code or MDE activity. Reassess them when executable paths, endpoint roles, or threat models change. The Chrome extension installation itself was not noisy: Sysmon retained four Event ID 15 records for the CRX download, SHA-256, Internet Zone marker, and Chrome Web Store referrer.
+
+After loading the tuned configuration, a 125.3-second sample retained 247 events at **1.97 events/second**, a **97.7% reduction** from baseline. Neither suppressed pattern appeared, Event ID 255 remained at zero, and other ProcessAccess and registry activity continued to surface. Treat this as a local preliminary measurement and continue monitoring over normal business cycles.
 
 ## 🙏 Credits
 
