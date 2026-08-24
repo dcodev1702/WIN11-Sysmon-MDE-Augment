@@ -1262,6 +1262,23 @@
         <TargetFilename name="technique_id=T1047,technique_name=File System Permissions Weakness" condition="begin with">C:\PerfLogs\</TargetFilename>
         <TargetFilename name="technique_id=T1047,technique_name=File System Permissions Weakness" condition="begin with">C:\Users\Public\</TargetFilename>
         <TargetFilename name="technique_id=T1047,technique_name=File System Permissions Weakness" condition="contains">\AppData\Temp\</TargetFilename>
+        <!-- Firefox installed-extension artifact telemetry (Sysmon Event ID 11). -->
+        <!-- High-confidence install/update artifact: Firefox writes a packaged add-on into the active profile's extensions directory. -->
+        <!-- Mozilla stores Windows profiles below AppData\Roaming\Mozilla\Firefox\Profiles; XPI creation is an artifact event, -->
+        <!-- not a semantic Firefox "install succeeded" audit record. Correlate the XPI write with extensions.json and browser telemetry. -->
+        <Rule name="Firefox profile extension XPI created or overwritten" groupRelation="and">
+          <Image condition="end with">\firefox.exe</Image>
+          <TargetFilename condition="contains">\AppData\Roaming\Mozilla\Firefox\Profiles\</TargetFilename>
+          <TargetFilename condition="contains">\extensions\</TargetFilename>
+          <TargetFilename condition="end with">.xpi</TargetFilename>
+        </Rule>
+        <!-- State-corroboration artifact: extensions.json is rewritten for installs, updates, enable/disable, and removals. -->
+        <!-- Do not classify this event alone as an installation; use it to complete the Firefox extension timeline. -->
+        <Rule name="Firefox extension state database created or overwritten" groupRelation="and">
+          <Image condition="end with">\firefox.exe</Image>
+          <TargetFilename condition="contains">\AppData\Roaming\Mozilla\Firefox\Profiles\</TargetFilename>
+          <TargetFilename condition="end with">\extensions.json</TargetFilename>
+        </Rule>
       </FileCreate>
     </RuleGroup>
     <!-- Event ID 12,13,14 == RegObject added/deleted, RegValue Set, RegObject Renamed - Sysmon will not provide notable additional visibility over MDE. Enable for your company specific keys. -->
@@ -1275,10 +1292,22 @@
         <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge</TargetObject>
         <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\Policies\Google\Chrome</TargetObject>
         <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\WOW6432Node\Policies\Google\Chrome</TargetObject>
+        <!-- Mozilla Firefox enterprise extension policy telemetry. -->
+        <!-- Mozilla documents extension policy under Software\Policies\Mozilla\Firefox, including -->
+        <!-- ExtensionSettings and Extensions\Install, Extensions\Uninstall, and Extensions\Locked. -->
+        <!-- The standard policy root below captures documented HKLM and HKCU/HKU policy changes, -->
+        <!-- including install, removal, blocking, force-install, and lock configuration. -->
+        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\Policies\Mozilla\Firefox</TargetObject>
+        <!-- Defensive visibility for 32-bit redirected writes. Mozilla does not document WOW6432Node -->
+        <!-- as the Firefox policy location; retain this rule to surface misplaced or suspicious writes. -->
+        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\WOW6432Node\Policies\Mozilla\Firefox</TargetObject>
         <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\Microsoft\Edge\Extensions</TargetObject>
         <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\WOW6432Node\Microsoft\Edge\Extensions</TargetObject>
         <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\Google\Chrome\Extensions</TargetObject>
         <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\WOW6432Node\Google\Chrome\Extensions</TargetObject>
+        <!-- Defensive visibility for direct, legacy, or suspicious Firefox extension registration. -->
+        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\Mozilla\Firefox\Extensions</TargetObject>
+        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\WOW6432Node\Mozilla\Firefox\Extensions</TargetObject>
         <TargetObject name="technique_id=T1546.011,technique_name=Application Shimming" condition="contains">HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\InstalledSDB</TargetObject>
         <TargetObject name="technique_id=T1546.011,technique_name=Application Shimming" condition="contains">HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom</TargetObject>
         <TargetObject name="technique_id=T1547.002,technique_name=Authentication Package" condition="begin with">HKLM\SYSTEM\CurrentControlSet\Control\Lsa\Authentication</TargetObject>

@@ -26,16 +26,43 @@ $browserPatterns = @(
     '\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge',
     '\SOFTWARE\Policies\Google\Chrome',
     '\SOFTWARE\WOW6432Node\Policies\Google\Chrome',
+    '\SOFTWARE\Policies\Mozilla\Firefox',
+    '\SOFTWARE\WOW6432Node\Policies\Mozilla\Firefox',
     '\SOFTWARE\Microsoft\Edge\Extensions',
     '\SOFTWARE\WOW6432Node\Microsoft\Edge\Extensions',
     '\SOFTWARE\Google\Chrome\Extensions',
-    '\SOFTWARE\WOW6432Node\Google\Chrome\Extensions'
+    '\SOFTWARE\WOW6432Node\Google\Chrome\Extensions',
+    '\SOFTWARE\Mozilla\Firefox\Extensions',
+    '\SOFTWARE\WOW6432Node\Mozilla\Firefox\Extensions'
+)
+$firefoxFileRuleDefinitions = @(
+    [pscustomobject]@{
+        Name = 'Firefox profile extension XPI created or overwritten'
+        Conditions = @(
+            @('Image', 'end with', '\firefox.exe'),
+            @('TargetFilename', 'contains', '\AppData\Roaming\Mozilla\Firefox\Profiles\'),
+            @('TargetFilename', 'contains', '\extensions\'),
+            @('TargetFilename', 'end with', '.xpi')
+        )
+    },
+    [pscustomobject]@{
+        Name = 'Firefox extension state database created or overwritten'
+        Conditions = @(
+            @('Image', 'end with', '\firefox.exe'),
+            @('TargetFilename', 'contains', '\AppData\Roaming\Mozilla\Firefox\Profiles\'),
+            @('TargetFilename', 'end with', '\extensions.json')
+        )
+    }
 )
 $registryExclusions = @($configuration.SelectNodes("//RegistryEvent[@onmatch='exclude']"))
 $registryIncludes = @($configuration.SelectNodes("//RegistryEvent[@onmatch='include']"))
+$fileCreateIncludes = @($configuration.SelectNodes("//FileCreate[@onmatch='include']"))
 
 if ($registryIncludes.Count -ne 1) {
     throw "Expected one RegistryEvent include block, found $($registryIncludes.Count)."
+}
+if ($fileCreateIncludes.Count -ne 1) {
+    throw "Expected one FileCreate include block, found $($fileCreateIncludes.Count)."
 }
 
 function Test-ApprovedRegistryExclusion {
@@ -84,16 +111,50 @@ function Test-BrowserRegistryRules {
     return $true
 }
 
+function Test-FirefoxFileCreateRules {
+    foreach ($definition in $firefoxFileRuleDefinitions) {
+        $matchingRules = @($fileCreateIncludes[0].ChildNodes | Where-Object {
+            $_.NodeType -eq [System.Xml.XmlNodeType]::Element -and
+            $_.LocalName -eq 'Rule' -and
+            $_.GetAttribute('name') -ceq $definition.Name
+        })
+        if ($matchingRules.Count -ne 1 -or $matchingRules[0].GetAttribute('groupRelation') -ne 'and') {
+            return $false
+        }
+
+        $conditions = @($matchingRules[0].ChildNodes | Where-Object {
+            $_.NodeType -eq [System.Xml.XmlNodeType]::Element
+        })
+        if ($conditions.Count -ne $definition.Conditions.Count) {
+            return $false
+        }
+
+        foreach ($conditionDefinition in $definition.Conditions) {
+            $matches = @($conditions | Where-Object {
+                $_.LocalName -ceq $conditionDefinition[0] -and
+                $_.GetAttribute('condition') -ceq $conditionDefinition[1] -and
+                $_.InnerText -ceq $conditionDefinition[2]
+            })
+            if ($matches.Count -ne 1) {
+                return $false
+            }
+        }
+    }
+    return $true
+}
+
 $approvedExclusionValid = $registryExclusions.Count -eq 1 -and
     (Test-ApprovedRegistryExclusion -RegistryExclusion $registryExclusions[0])
 $browserRulesValid = Test-BrowserRegistryRules
+$firefoxFileRulesValid = Test-FirefoxFileCreateRules
 
-if ($approvedExclusionValid -and $browserRulesValid) {
+if ($approvedExclusionValid -and $browserRulesValid -and $firefoxFileRulesValid) {
     return [pscustomobject]@{
         Configuration = $resolvedConfig
         RemovedExclusionGroups = 0
         ApprovedNoiseTuningRule = $approvedRuleName
         BrowserRegistryRules = $browserPatterns.Count
+        FirefoxFileCreateRules = $firefoxFileRuleDefinitions.Count
         Status = 'AlreadyProtected'
     }
 }
@@ -108,6 +169,27 @@ if (-not $browserRulesValid) {
         $browserRule.SetAttribute('condition', 'contains')
         $browserRule.InnerText = $pattern
         $null = $registryIncludes[0].AppendChild($browserRule)
+    }
+}
+
+if (-not $firefoxFileRulesValid) {
+    foreach ($definition in $firefoxFileRuleDefinitions) {
+        foreach ($existingRule in @($fileCreateIncludes[0].SelectNodes('Rule') | Where-Object {
+            $_.GetAttribute('name') -ceq $definition.Name
+        })) {
+            $null = $existingRule.ParentNode.RemoveChild($existingRule)
+        }
+
+        $rule = $configuration.CreateElement('Rule')
+        $rule.SetAttribute('name', $definition.Name)
+        $rule.SetAttribute('groupRelation', 'and')
+        foreach ($conditionDefinition in $definition.Conditions) {
+            $condition = $configuration.CreateElement($conditionDefinition[0])
+            $condition.SetAttribute('condition', $conditionDefinition[1])
+            $condition.InnerText = $conditionDefinition[2]
+            $null = $rule.AppendChild($condition)
+        }
+        $null = $fileCreateIncludes[0].AppendChild($rule)
     }
 }
 
@@ -175,5 +257,6 @@ try {
     RemovedExclusionGroups = if ($approvedExclusionValid) { 0 } else { $registryExclusions.Count }
     ApprovedNoiseTuningRule = $approvedRuleName
     BrowserRegistryRules = $browserPatterns.Count
+    FirefoxFileCreateRules = $firefoxFileRuleDefinitions.Count
     Status = 'Protected'
 }

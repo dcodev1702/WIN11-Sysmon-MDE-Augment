@@ -4,12 +4,17 @@ All notable project changes are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added Mozilla Firefox extension telemetry for enterprise policy changes, defensive direct `Extensions` registry coverage, profile XPI writes, and `extensions.json` state changes.
+- Added step-by-step Registry Editor instructions for `ExtensionSettings`, AMO extension IDs and install URLs, policy verification, Sysmon verification, and managed removal.
+
 ### Changed
 
 - Moved all PowerShell automation into `scripts/` and updated default configuration resolution to continue loading the root-level `win11-sysmon-mde-augment.xml`.
 - Updated README links and commands for the new script paths.
 - Expanded Edge and Chrome registry monitoring to managed policy and native external-extension roots across HKLM, HKU user hives, native views, and WOW6432Node views.
-- Updated validation and upstream-refresh protection to enforce all eight browser registry patterns.
+- Updated validation and upstream-refresh protection to enforce all twelve browser registry patterns, root/key/value descendant coverage, and both Firefox FileCreate rules.
 - Set the Sysmon Operational channel maximum size to 4 GiB and made that setting part of `Enable-Sysmon.ps1`.
 - Added a UTC-normalized ColorZilla timeline correlating `chrome_debug.log`, Sysmon Operational events, and `xdr_results.csv`.
 - Moved generated HTML reports into the ignored `output/` directory and replaced the global `*.html` ignore rule with `output/`.
@@ -17,25 +22,30 @@ All notable project changes are documented in this file.
 ### Browser registry signal structure
 
 - Browser extension registry telemetry is emitted by one `RegistryEvent onmatch="include"` block. Every browser rule is named `technique_id=T1176,technique_name=Browser Extensions`, making matching Events 12–14 directly identifiable by `RuleName`.
-- The include block uses eight case-insensitive `TargetObject condition="contains"` patterns:
+- The include block uses twelve case-insensitive `TargetObject condition="contains"` patterns:
 	- Managed Edge: `\SOFTWARE\Policies\Microsoft\Edge`
 	- Managed Edge WOW6432: `\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge`
 	- Managed Chrome: `\SOFTWARE\Policies\Google\Chrome`
 	- Managed Chrome WOW6432: `\SOFTWARE\WOW6432Node\Policies\Google\Chrome`
+	- Managed Firefox: `\SOFTWARE\Policies\Mozilla\Firefox`
+	- Defensive Firefox WOW6432 visibility: `\SOFTWARE\WOW6432Node\Policies\Mozilla\Firefox`
 	- Native Edge external extensions: `\SOFTWARE\Microsoft\Edge\Extensions`
 	- Native Edge external extensions WOW6432: `\SOFTWARE\WOW6432Node\Microsoft\Edge\Extensions`
 	- Native Chrome external extensions: `\SOFTWARE\Google\Chrome\Extensions`
 	- Native Chrome external extensions WOW6432: `\SOFTWARE\WOW6432Node\Google\Chrome\Extensions`
+	- Defensive Firefox direct extensions: `\SOFTWARE\Mozilla\Firefox\Extensions`
+	- Defensive Firefox direct extensions WOW6432: `\SOFTWARE\WOW6432Node\Mozilla\Firefox\Extensions`
 - Using path fragments rather than fixed hive prefixes makes each pattern match both machine state under `HKLM` and per-user state normalized by Sysmon under `HKU\<SID>`. Each pattern covers its root key and every descendant extension ID key/value.
-- Managed-policy signals now include `ExtensionInstallAllowlist`, `ExtensionInstallBlocklist`, `ExtensionInstallForcelist`, `ExtensionSettings`, and other extension controls below the Edge or Chrome policy root.
+- Managed-policy signals now include Chromium `ExtensionInstallAllowlist`, `ExtensionInstallBlocklist`, and `ExtensionInstallForcelist` changes plus Firefox `ExtensionSettings` and `Extensions\Install`, `Extensions\Uninstall`, and `Extensions\Locked` changes.
 - Native external-registration signals now include extension-ID child keys and values such as Chrome `update_url`/`update_URL`, including native and redirected 32-bit registry views.
 - Sysmon event semantics for these paths are:
 	- Event ID 12: `CreateKey`, `DeleteKey`, and `DeleteValue` object lifecycle activity.
 	- Event ID 13: `SetValue`, including initial value creation and subsequent modification.
 	- Event ID 14: key or value rename activity.
-- Exclude precedence remains bounded to one approved AND rule: exact image `MsSense.exe`, exact `CreateKey` event type, and `HKLM\System\CurrentControlSet\Services\`. It cannot overlap any Edge or Chrome browser pattern, so browser extension registry events remain included regardless of the writing process.
+- Exclude precedence remains bounded to one approved AND rule: exact image `MsSense.exe`, exact `CreateKey` event type, and `HKLM\System\CurrentControlSet\Services\`. It cannot overlap any Edge, Chrome, or Firefox browser pattern, so browser extension registry events remain included regardless of the writing process.
+- Firefox Event ID 11 rules capture `firefox.exe` writes to profile `extensions\*.xpi` files as install/update artifacts and `extensions.json` as corroborating extension-state activity.
 - The ColorZilla capture demonstrates the managed signal path: Records `153155`, `153172`, `153173`, and `153174` surfaced allowlist value creation, rename/delete, and population with extension ID `bhlhnicpbhignbdhedgjhgdocnmhomnp` under RuleName T1176.
-- The same capture exposed the former native-path gap at `HKLM\Software\Google\Chrome\Extensions\<extension-id>`. The eight-pattern structure closes that gap for future Chrome and Edge activity.
+- The same capture exposed the former native-path gap at `HKLM\Software\Google\Chrome\Extensions\<extension-id>`. The native-root patterns close that gap for future Edge, Chrome, and defensive Firefox direct-registration activity.
 - Live validation exercised Chrome and Edge across HKLM/HKU and native/WOW6432 views. It produced 40 T1176 records across eight roots: one `CreateKey`, two `SetValue`, one `DeleteValue`, and one `DeleteKey` per root, with eight complete lifecycles and zero residual test keys.
 
 ## [1.1.0] - 2026-08-24
