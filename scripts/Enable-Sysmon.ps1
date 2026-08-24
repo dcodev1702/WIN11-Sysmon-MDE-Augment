@@ -5,14 +5,18 @@
 param(
     [Parameter()]
     [ValidateNotNullOrEmpty()]
-    [string] $ConfigPath
+    [string] $ConfigPath,
+
+    [Parameter()]
+    [ValidateRange(1048576, 4294967296)]
+    [long] $EventLogMaximumSizeBytes = 4GB
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
-    $ConfigPath = Join-Path -Path $PSScriptRoot -ChildPath 'win11-sysmon-mde-augment.xml'
+    $ConfigPath = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath 'win11-sysmon-mde-augment.xml'
 }
 
 function Test-IsAdministrator {
@@ -86,6 +90,11 @@ if ($LASTEXITCODE -ne 0) {
     throw "Sysmon exited with code $LASTEXITCODE while attempting to $($operation.ToLowerInvariant()) the configuration."
 }
 
+& wevtutil.exe sl 'Microsoft-Windows-Sysmon/Operational' "/ms:$EventLogMaximumSizeBytes"
+if ($LASTEXITCODE -ne 0) {
+    throw "wevtutil exited with code $LASTEXITCODE while setting the Sysmon Operational log size."
+}
+
 $services = @(Get-Service -Name 'Sysmon*' -ErrorAction Stop)
 $eventLog = Get-WinEvent -ListLog 'Microsoft-Windows-Sysmon/Operational'
 
@@ -97,5 +106,7 @@ $eventLog = Get-WinEvent -ListLog 'Microsoft-Windows-Sysmon/Operational'
     Services = $services.Name -join ', '
     ServiceStatus = ($services.Status | Select-Object -Unique) -join ', '
     EventLogEnabled = $eventLog.IsEnabled
+    EventLogMaximumSizeBytes = $eventLog.MaximumSizeInBytes
+    EventLogMaximumSizeGiB = [math]::Round($eventLog.MaximumSizeInBytes / 1GB, 2)
     RestartNeeded = $false
 }

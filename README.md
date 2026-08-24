@@ -15,10 +15,11 @@ This project enables high-fidelity Sysmon telemetry that complements Microsoft D
 
 | File | Purpose |
 | --- | --- |
-| [`win11-sysmon-mde-augment.xml`](win11-sysmon-mde-augment.xml) | Olaf's MDE augment configuration plus browser policy monitoring. |
-| [`Enable-Sysmon.ps1`](Enable-Sysmon.ps1) | Validates the XML, enables built-in Sysmon, and installs or updates the configuration. |
-| [`Test-Configuration.ps1`](Test-Configuration.ps1) | Verifies XML parsing and all browser policy rule boundaries. |
-| [`Protect-BrowserRegistryTelemetry.ps1`](Protect-BrowserRegistryTelemetry.ps1) | Replaces upstream registry exclusions with the single approved MDE noise rule while preserving browser telemetry. |
+| [`win11-sysmon-mde-augment.xml`](win11-sysmon-mde-augment.xml) | Olaf's MDE augment configuration plus managed and native browser extension registry monitoring. |
+| [`scripts/Enable-Sysmon.ps1`](scripts/Enable-Sysmon.ps1) | Validates the XML, enables built-in Sysmon, and installs or updates the configuration. |
+| [`scripts/Test-Configuration.ps1`](scripts/Test-Configuration.ps1) | Verifies XML parsing and all browser policy rule boundaries. |
+| [`scripts/Protect-BrowserRegistryTelemetry.ps1`](scripts/Protect-BrowserRegistryTelemetry.ps1) | Reconstructs the complete browser registry matrix and approved MDE noise rule after an upstream refresh. |
+| [`chrome_extension_install_colorzilla_correlated_timeline_UTC.html`](chrome_extension_install_colorzilla_correlated_timeline_UTC.html) | UTC correlation of ColorZilla Chrome debug, Sysmon, and Defender XDR evidence. |
 | [`CHANGELOG.md`](CHANGELOG.md) | Chronological record of telemetry and tuning changes. |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Attribution and license notice for the upstream configuration. |
 
@@ -43,8 +44,8 @@ If this returns a service while the Windows optional feature is disabled, remove
 Open Windows PowerShell as Administrator, move to this repository, and run:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Test-Configuration.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Enable-Sysmon.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Configuration.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Enable-Sysmon.ps1
 ```
 
 The `-ExecutionPolicy Bypass` setting applies only to the new PowerShell process used for that command; it does not change the machine or user execution-policy setting. Both scripts require Windows PowerShell 5.1 (`powershell.exe`) because the inbox DISM feature cmdlets can fail under PowerShell 7 (`pwsh.exe`) on some Windows builds.
@@ -56,11 +57,12 @@ The installer:
 3. Enables the `Sysmon` Windows optional feature.
 4. Uses `sysmon -i` for a new installation or `sysmon -c` for an existing built-in installation.
 5. Confirms the service and `Microsoft-Windows-Sysmon/Operational` event log exist.
+6. Sets the Sysmon Operational channel maximum size to **4 GiB** and reports the effective size.
 
 If Windows reports that a restart is required, restart the device and run the script again. Preview the planned action without changing Windows with:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Enable-Sysmon.ps1 -WhatIf
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Enable-Sysmon.ps1 -WhatIf
 ```
 
 ## 🪟 Manual Microsoft procedure
@@ -74,6 +76,7 @@ Enable-WindowsOptionalFeature -Online -FeatureName Sysmon
 New-Item -ItemType Directory -Path C:\Sysmon -Force
 Copy-Item .\win11-sysmon-mde-augment.xml C:\Sysmon\win11-sysmon-mde-augment.xml
 sysmon -i C:\Sysmon\win11-sysmon-mde-augment.xml
+wevtutil sl Microsoft-Windows-Sysmon/Operational /ms:4294967296
 ```
 
 Restart Windows after enabling the optional feature if requested, then continue with `sysmon -i`. Configuration changes take effect immediately and do not otherwise require a restart.
@@ -84,9 +87,9 @@ To update an existing installation:
 sysmon -c C:\Sysmon\win11-sysmon-mde-augment.xml
 ```
 
-## 🔎 Browser extension policy coverage
+## 🔎 Browser extension registry coverage
 
-Sysmon Registry Events **12, 13, and 14** cover key/value creation, modification, deletion, and rename activity. The custom rules use an exact match for each policy root and a trailing-backslash descendant match. This covers the root and every child while avoiding unrelated, similarly prefixed keys.
+Sysmon Registry Events **12, 13, and 14** cover key/value creation, modification, deletion, and rename activity. Eight case-insensitive `contains` patterns cover managed policy and native external-registration trees for Microsoft Edge and Google Chrome. The patterns match HKLM and any HKU user SID; separate patterns cover WOW6432Node views.
 
 | Activity | Sysmon event | Captured for watched trees |
 | --- | --- | --- |
@@ -103,6 +106,8 @@ HKLM\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge
 HKLM\SOFTWARE\Policies\Google\Chrome
 HKLM\SOFTWARE\WOW6432Node\Policies\Google\Chrome
 ```
+
+Equivalent `HKU\<SID>\SOFTWARE\...` policy paths are covered for per-user settings.
 
 ### Watched extension list locations
 
@@ -121,9 +126,20 @@ HKLM\SOFTWARE\WOW6432Node\Policies\Google\Chrome
 | Chrome | 32-bit | `HKLM\SOFTWARE\WOW6432Node\Policies\Google\Chrome\ExtensionInstallBlocklist` |
 | Chrome | 32-bit | `HKLM\SOFTWARE\WOW6432Node\Policies\Google\Chrome\ExtensionInstallForcelist` |
 
+### Watched native external-registration roots
+
+| Browser | Registry view | Machine path | Per-user equivalent |
+| --- | --- | --- | --- |
+| Edge | Native | `HKLM\SOFTWARE\Microsoft\Edge\Extensions` | `HKU\<SID>\SOFTWARE\Microsoft\Edge\Extensions` |
+| Edge | 32-bit | `HKLM\SOFTWARE\WOW6432Node\Microsoft\Edge\Extensions` | `HKU\<SID>\SOFTWARE\WOW6432Node\Microsoft\Edge\Extensions` |
+| Chrome | Native | `HKLM\SOFTWARE\Google\Chrome\Extensions` | `HKU\<SID>\SOFTWARE\Google\Chrome\Extensions` |
+| Chrome | 32-bit | `HKLM\SOFTWARE\WOW6432Node\Google\Chrome\Extensions` | `HKU\<SID>\SOFTWARE\WOW6432Node\Google\Chrome\Extensions` |
+
+Each extension ID appears as a child key under these native roots. Chrome commonly stores `update_url` or `update_URL` in that child key; creating, changing, renaming, or deleting either the ID key or its values now generates Sysmon registry telemetry.
+
 The XML maps these additions to MITRE ATT&CK **T1176: Browser Extensions**. The policy values beneath each list typically contain extension identifiers, so changes are useful for detecting unauthorized allowlisting, blocking, or silent force-installation.
 
-Because Sysmon exclusion rules take precedence over include rules, this configuration replaces the upstream `RegistryEvent onmatch="exclude"` group with one approved rule that can match only `MsSense.exe` `CreateKey` probes under `HKLM\System\CurrentControlSet\Services\`. It cannot match the Edge or Chrome policy roots, so create, modify, delete, and rename telemetry remains unconditional for the requested browser paths. Other event-family exclusions from the MDE augment profile remain unchanged.
+Because Sysmon exclusion rules take precedence over include rules, this configuration replaces the upstream `RegistryEvent onmatch="exclude"` group with one approved rule that can match only `MsSense.exe` `CreateKey` probes under `HKLM\System\CurrentControlSet\Services\`. It cannot match any Edge or Chrome policy/native extension root, so create, modify, delete, and rename telemetry remains unconditional for the requested browser paths. Other event-family exclusions from the MDE augment profile remain unchanged.
 
 ## 🧪 Verify telemetry
 
@@ -165,8 +181,8 @@ Use this test only on a lab device or in an approved maintenance window. Remove 
 - Pilot on representative Windows 11 devices before broad deployment.
 - Baseline event volume and tune noisy rules for your software estate.
 - Monitor Sysmon Event ID 4 for service state changes, ID 16 for configuration changes, and ID 255 for errors.
-- Preserve the four browser policy rules when refreshing the upstream MDE augment file.
-- After replacing the XML from upstream, run `Protect-BrowserRegistryTelemetry.ps1` and then `Test-Configuration.ps1` before deployment.
+- Preserve all eight browser registry patterns when refreshing the upstream MDE augment file.
+- After replacing the XML from upstream, run `scripts\Protect-BrowserRegistryTelemetry.ps1` and then `scripts\Test-Configuration.ps1` before deployment.
 - Keep one controlled configuration version per endpoint role where practical.
 - Treat Sysmon events as evidence, not alerts; correlate them with MDE and identity/network telemetry.
 
@@ -197,7 +213,8 @@ This project is inspired by and derived from [Olaf Hartong's sysmon-modular proj
 - [Upstream MDE augment configuration](https://raw.githubusercontent.com/olafhartong/sysmon-modular/master/sysmonconfig-mde-augment.xml)
 - [Microsoft Edge extension policies](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies#extensions)
 - [Chrome Enterprise extension policies](https://chromeenterprise.google/policies/#ExtensionInstallAllowlist)
+- [Chrome alternative installation methods: Windows registry](https://developer.chrome.com/docs/extensions/how-to/distribute/install-extensions#registry)
 
-The upstream XML was retrieved on **2026-08-24** with SHA-256 `B0BAFCEC2BE753772E36E4BF891336DF558A4CEC53DD8C9BC716613B92F98943`, then extended with the documented browser registry rules and removal of the competing `RegistryEvent` exclusion group. Review the [third-party notice](THIRD-PARTY-NOTICES.md) before redistribution.
+The upstream XML was retrieved on **2026-08-24** with SHA-256 `B0BAFCEC2BE753772E36E4BF891336DF558A4CEC53DD8C9BC716613B92F98943`, then extended with the documented managed/native browser registry rules and replacement of the competing `RegistryEvent` exclusion group. Review the [third-party notice](THIRD-PARTY-NOTICES.md) before redistribution.
 
 *Disclaimer: GitHub Copilot (w/ChatGPT 5.6 Sol) was employed in the creation of this project.*

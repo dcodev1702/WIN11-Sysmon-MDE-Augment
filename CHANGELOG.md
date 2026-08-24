@@ -4,6 +4,15 @@ All notable project changes are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Moved all PowerShell automation into `scripts/` and updated default configuration resolution to continue loading the root-level `win11-sysmon-mde-augment.xml`.
+- Updated README links and commands for the new script paths.
+- Expanded Edge and Chrome registry monitoring to managed policy and native external-extension roots across HKLM, HKU user hives, native views, and WOW6432Node views.
+- Updated validation and upstream-refresh protection to enforce all eight browser registry patterns.
+- Set the Sysmon Operational channel maximum size to 4 GiB and made that setting part of `Enable-Sysmon.ps1`.
+- Added a UTC-normalized ColorZilla timeline correlating `chrome_debug.log`, Sysmon Operational events, and `xdr_results.csv`.
+
 ## [1.1.0] - 2026-08-24
 
 ### Changed

@@ -1267,18 +1267,18 @@
     <!-- Event ID 12,13,14 == RegObject added/deleted, RegValue Set, RegObject Renamed - Sysmon will not provide notable additional visibility over MDE. Enable for your company specific keys. -->
     <RuleGroup groupRelation="or">
       <RegistryEvent onmatch="include">
-        <!-- Custom browser policy monitoring for Event IDs 12, 13, and 14. -->
-        <!-- Exact matches capture changes to each policy root; trailing-backslash matches capture every descendant without matching similarly prefixed keys. -->
-        <!-- Monitored Edge descendants include ExtensionInstallAllowlist, ExtensionInstallBlocklist, and ExtensionInstallForcelist. -->
-        <!-- Monitored Chrome descendants include ExtensionInstallAllowlist, ExtensionInstallBlocklist, and ExtensionInstallForcelist. -->
-        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="is">HKLM\SOFTWARE\Policies\Microsoft\Edge</TargetObject>
-        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="begin with">HKLM\SOFTWARE\Policies\Microsoft\Edge\</TargetObject>
-        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="is">HKLM\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge</TargetObject>
-        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="begin with">HKLM\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge\</TargetObject>
-        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="is">HKLM\SOFTWARE\Policies\Google\Chrome</TargetObject>
-        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="begin with">HKLM\SOFTWARE\Policies\Google\Chrome\</TargetObject>
-        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="is">HKLM\SOFTWARE\WOW6432Node\Policies\Google\Chrome</TargetObject>
-        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="begin with">HKLM\SOFTWARE\WOW6432Node\Policies\Google\Chrome\</TargetObject>
+        <!-- Custom browser extension monitoring for Event IDs 12, 13, and 14. -->
+        <!-- "contains" captures each root and descendants under HKLM or any HKU user SID; WOW6432Node views are explicit. -->
+        <!-- Policy trees cover allow/block/force lists, ExtensionSettings, and other managed extension controls. -->
+        <!-- Native trees cover external extension ID keys and update_url values used by Chrome and Edge. -->
+        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\Policies\Microsoft\Edge</TargetObject>
+        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge</TargetObject>
+        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\Policies\Google\Chrome</TargetObject>
+        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\WOW6432Node\Policies\Google\Chrome</TargetObject>
+        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\Microsoft\Edge\Extensions</TargetObject>
+        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\WOW6432Node\Microsoft\Edge\Extensions</TargetObject>
+        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\Google\Chrome\Extensions</TargetObject>
+        <TargetObject name="technique_id=T1176,technique_name=Browser Extensions" condition="contains">\SOFTWARE\WOW6432Node\Google\Chrome\Extensions</TargetObject>
         <TargetObject name="technique_id=T1546.011,technique_name=Application Shimming" condition="contains">HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\InstalledSDB</TargetObject>
         <TargetObject name="technique_id=T1546.011,technique_name=Application Shimming" condition="contains">HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom</TargetObject>
         <TargetObject name="technique_id=T1547.002,technique_name=Authentication Package" condition="begin with">HKLM\SYSTEM\CurrentControlSet\Control\Lsa\Authentication</TargetObject>

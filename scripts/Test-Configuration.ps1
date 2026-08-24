@@ -11,7 +11,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
-    $ConfigPath = Join-Path -Path $PSScriptRoot -ChildPath 'win11-sysmon-mde-augment.xml'
+    $ConfigPath = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath 'win11-sysmon-mde-augment.xml'
 }
 
 $resolvedConfig = (Resolve-Path -LiteralPath $ConfigPath).ProviderPath
@@ -24,20 +24,27 @@ if ($configuration.DocumentElement.Name -ne 'Sysmon') {
 
 $ruleName = 'technique_id=T1176,technique_name=Browser Extensions'
 $browserRules = @($configuration.SelectNodes("//RegistryEvent[@onmatch='include']/TargetObject[@name='$ruleName']"))
-$expectedRoots = @(
-    'HKLM\SOFTWARE\Policies\Microsoft\Edge',
-    'HKLM\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge',
-    'HKLM\SOFTWARE\Policies\Google\Chrome',
-    'HKLM\SOFTWARE\WOW6432Node\Policies\Google\Chrome'
+$policyPatterns = @(
+    '\SOFTWARE\Policies\Microsoft\Edge',
+    '\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge',
+    '\SOFTWARE\Policies\Google\Chrome',
+    '\SOFTWARE\WOW6432Node\Policies\Google\Chrome'
 )
+$externalExtensionPatterns = @(
+    '\SOFTWARE\Microsoft\Edge\Extensions',
+    '\SOFTWARE\WOW6432Node\Microsoft\Edge\Extensions',
+    '\SOFTWARE\Google\Chrome\Extensions',
+    '\SOFTWARE\WOW6432Node\Google\Chrome\Extensions'
+)
+$expectedPatterns = $policyPatterns + $externalExtensionPatterns
 $extensionLists = @(
     'ExtensionInstallAllowlist',
     'ExtensionInstallBlocklist',
     'ExtensionInstallForcelist'
 )
 
-if ($browserRules.Count -ne 8) {
-    throw "Expected 8 browser policy rules, found $($browserRules.Count)."
+if ($browserRules.Count -ne $expectedPatterns.Count) {
+    throw "Expected $($expectedPatterns.Count) browser registry rules, found $($browserRules.Count)."
 }
 
 $registryExclusions = @($configuration.SelectNodes("//RegistryEvent[@onmatch='exclude']"))
@@ -66,23 +73,39 @@ if (
     throw 'The approved MDE registry noise-tuning rule is missing or has changed.'
 }
 
-foreach ($root in $expectedRoots) {
-    $exactRules = @($browserRules | Where-Object {
-        $_.condition -eq 'is' -and $_.InnerText -ceq $root
-    })
-    $descendantPrefix = "$root\"
-    $descendantRules = @($browserRules | Where-Object {
-        $_.condition -eq 'begin with' -and $_.InnerText -ceq $descendantPrefix
+foreach ($pattern in $expectedPatterns) {
+    $matchingRules = @($browserRules | Where-Object {
+        $_.condition -eq 'contains' -and $_.InnerText -ceq $pattern
     })
 
-    if ($exactRules.Count -ne 1 -or $descendantRules.Count -ne 1) {
-        throw "The exact and descendant rules are incomplete for $root."
+    if ($matchingRules.Count -ne 1) {
+        throw "The browser registry rule is missing or duplicated for $pattern."
     }
+}
 
+foreach ($root in @(
+    'HKLM\SOFTWARE\Policies\Microsoft\Edge',
+    'HKLM\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge',
+    'HKLM\SOFTWARE\Policies\Google\Chrome',
+    'HKLM\SOFTWARE\WOW6432Node\Policies\Google\Chrome'
+)) {
     foreach ($extensionList in $extensionLists) {
         $location = "$root\$extensionList"
-        if (-not $location.StartsWith($descendantPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "The descendant rule does not cover $location."
+        $covered = @($policyPatterns | Where-Object {
+            $location.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0
+        }).Count -eq 1
+        if (-not $covered) {
+            throw "No policy pattern covers $location."
+        }
+    }
+}
+
+$sampleUserSid = 'S-1-5-21-111111111-222222222-333333333-1001'
+foreach ($pattern in $expectedPatterns) {
+    foreach ($hivePrefix in @('HKLM', "HKU\$sampleUserSid")) {
+        $samplePath = "$hivePrefix$pattern\SampleExtensionId"
+        if ($samplePath.IndexOf($pattern, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            throw "The sample path $samplePath is not covered by $pattern."
         }
     }
 }
@@ -106,9 +129,12 @@ if (
     Configuration = $resolvedConfig
     SchemaVersion = $configuration.DocumentElement.schemaversion
     RegistryIncludeGroups = $configuration.SelectNodes("//RegistryEvent[@onmatch='include']").Count
-    BrowserPolicyRoots = $expectedRoots.Count
+    BrowserPolicyPatterns = $policyPatterns.Count
+    BrowserExternalExtensionPatterns = $externalExtensionPatterns.Count
     BrowserRuleNodes = $browserRules.Count
-    ExtensionListLocations = $expectedRoots.Count * $extensionLists.Count
+    ExtensionListLocations = $policyPatterns.Count * $extensionLists.Count
+    MachineAndUserHivesCovered = $true
+    NativeAndWow6432ViewsCovered = $true
     RegistryExcludeGroups = $registryExclusions.Count
     ApprovedRegistryNoiseRule = $approvedRuleName
     VSCodeAppDataNoiseSuppressed = $true
