@@ -12,6 +12,31 @@ All notable project changes are documented in this file.
 - Updated validation and upstream-refresh protection to enforce all eight browser registry patterns.
 - Set the Sysmon Operational channel maximum size to 4 GiB and made that setting part of `Enable-Sysmon.ps1`.
 - Added a UTC-normalized ColorZilla timeline correlating `chrome_debug.log`, Sysmon Operational events, and `xdr_results.csv`.
+- Moved generated HTML reports into the ignored `output/` directory and replaced the global `*.html` ignore rule with `output/`.
+
+### Browser registry signal structure
+
+- Browser extension registry telemetry is emitted by one `RegistryEvent onmatch="include"` block. Every browser rule is named `technique_id=T1176,technique_name=Browser Extensions`, making matching Events 12–14 directly identifiable by `RuleName`.
+- The include block uses eight case-insensitive `TargetObject condition="contains"` patterns:
+	- Managed Edge: `\SOFTWARE\Policies\Microsoft\Edge`
+	- Managed Edge WOW6432: `\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge`
+	- Managed Chrome: `\SOFTWARE\Policies\Google\Chrome`
+	- Managed Chrome WOW6432: `\SOFTWARE\WOW6432Node\Policies\Google\Chrome`
+	- Native Edge external extensions: `\SOFTWARE\Microsoft\Edge\Extensions`
+	- Native Edge external extensions WOW6432: `\SOFTWARE\WOW6432Node\Microsoft\Edge\Extensions`
+	- Native Chrome external extensions: `\SOFTWARE\Google\Chrome\Extensions`
+	- Native Chrome external extensions WOW6432: `\SOFTWARE\WOW6432Node\Google\Chrome\Extensions`
+- Using path fragments rather than fixed hive prefixes makes each pattern match both machine state under `HKLM` and per-user state normalized by Sysmon under `HKU\<SID>`. Each pattern covers its root key and every descendant extension ID key/value.
+- Managed-policy signals now include `ExtensionInstallAllowlist`, `ExtensionInstallBlocklist`, `ExtensionInstallForcelist`, `ExtensionSettings`, and other extension controls below the Edge or Chrome policy root.
+- Native external-registration signals now include extension-ID child keys and values such as Chrome `update_url`/`update_URL`, including native and redirected 32-bit registry views.
+- Sysmon event semantics for these paths are:
+	- Event ID 12: `CreateKey`, `DeleteKey`, and `DeleteValue` object lifecycle activity.
+	- Event ID 13: `SetValue`, including initial value creation and subsequent modification.
+	- Event ID 14: key or value rename activity.
+- Exclude precedence remains bounded to one approved AND rule: exact image `MsSense.exe`, exact `CreateKey` event type, and `HKLM\System\CurrentControlSet\Services\`. It cannot overlap any Edge or Chrome browser pattern, so browser extension registry events remain included regardless of the writing process.
+- The ColorZilla capture demonstrates the managed signal path: Records `153155`, `153172`, `153173`, and `153174` surfaced allowlist value creation, rename/delete, and population with extension ID `bhlhnicpbhignbdhedgjhgdocnmhomnp` under RuleName T1176.
+- The same capture exposed the former native-path gap at `HKLM\Software\Google\Chrome\Extensions\<extension-id>`. The eight-pattern structure closes that gap for future Chrome and Edge activity.
+- Live validation exercised Chrome and Edge across HKLM/HKU and native/WOW6432 views. It produced 40 T1176 records across eight roots: one `CreateKey`, two `SetValue`, one `DeleteValue`, and one `DeleteKey` per root, with eight complete lifecycles and zero residual test keys.
 
 ## [1.1.0] - 2026-08-24
 

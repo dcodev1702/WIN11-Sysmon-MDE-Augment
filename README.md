@@ -19,7 +19,6 @@ This project enables high-fidelity Sysmon telemetry that complements Microsoft D
 | [`scripts/Enable-Sysmon.ps1`](scripts/Enable-Sysmon.ps1) | Validates the XML, enables built-in Sysmon, and installs or updates the configuration. |
 | [`scripts/Test-Configuration.ps1`](scripts/Test-Configuration.ps1) | Verifies XML parsing and all browser policy rule boundaries. |
 | [`scripts/Protect-BrowserRegistryTelemetry.ps1`](scripts/Protect-BrowserRegistryTelemetry.ps1) | Reconstructs the complete browser registry matrix and approved MDE noise rule after an upstream refresh. |
-| [`chrome_extension_install_colorzilla_correlated_timeline_UTC.html`](chrome_extension_install_colorzilla_correlated_timeline_UTC.html) | UTC correlation of ColorZilla Chrome debug, Sysmon, and Defender XDR evidence. |
 | [`CHANGELOG.md`](CHANGELOG.md) | Chronological record of telemetry and tuning changes. |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Attribution and license notice for the upstream configuration. |
 
