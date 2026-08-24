@@ -1,0 +1,101 @@
+#Requires -Version 5.1
+#Requires -PSEdition Desktop
+
+[CmdletBinding(SupportsShouldProcess)]
+param(
+    [Parameter()]
+    [ValidateNotNullOrEmpty()]
+    [string] $ConfigPath
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
+    $ConfigPath = Join-Path -Path $PSScriptRoot -ChildPath 'win11-sysmon-mde-augment.xml'
+}
+
+function Test-IsAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+if (-not (Test-IsAdministrator)) {
+    throw 'Run this script from an elevated Windows PowerShell session.'
+}
+
+$resolvedConfig = (Resolve-Path -LiteralPath $ConfigPath).ProviderPath
+$configuration = New-Object System.Xml.XmlDocument
+$configuration.Load($resolvedConfig)
+
+if ($configuration.DocumentElement.Name -ne 'Sysmon') {
+    throw "The configuration root must be Sysmon: $resolvedConfig"
+}
+
+$feature = Get-WindowsOptionalFeature -Online -FeatureName Sysmon
+$services = @(Get-Service -Name 'Sysmon*' -ErrorAction SilentlyContinue)
+
+if ($feature.State -ne 'Enabled') {
+    if ($services.Count -gt 0) {
+        $names = $services.Name -join ', '
+        throw "A Sysmon service already exists while the built-in feature is disabled ($names). Remove the standalone Sysmon installation before continuing."
+    }
+
+    if (-not $PSCmdlet.ShouldProcess('Windows optional feature Sysmon', 'Enable')) {
+        return
+    }
+
+    $enableResult = Enable-WindowsOptionalFeature -Online -FeatureName Sysmon -NoRestart
+    if ($enableResult.RestartNeeded) {
+        Write-Warning 'Windows must restart before Sysmon can be installed. Restart, then run this script again.'
+        return [pscustomobject]@{
+            Feature = 'EnabledPendingRestart'
+            Configuration = $resolvedConfig
+            RestartNeeded = $true
+        }
+    }
+}
+
+$sysmonCommand = Get-Command -Name 'sysmon.exe' -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+
+if (-not $sysmonCommand) {
+    $sysmonCommand = Get-Command -Name 'sysmon' -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+}
+
+if (-not $sysmonCommand) {
+    throw 'The Sysmon command is unavailable. Restart Windows if the optional feature was just enabled.'
+}
+
+$services = @(Get-Service -Name 'Sysmon*' -ErrorAction SilentlyContinue)
+$operation = if ($services.Count -gt 0) { 'Update' } else { 'Install' }
+$arguments = if ($operation -eq 'Update') {
+    @('-c', $resolvedConfig)
+} else {
+    @('-i', $resolvedConfig)
+}
+
+if (-not $PSCmdlet.ShouldProcess($resolvedConfig, "$operation built-in Sysmon configuration")) {
+    return
+}
+
+& $sysmonCommand.Source @arguments
+if ($LASTEXITCODE -ne 0) {
+    throw "Sysmon exited with code $LASTEXITCODE while attempting to $($operation.ToLowerInvariant()) the configuration."
+}
+
+$services = @(Get-Service -Name 'Sysmon*' -ErrorAction Stop)
+$eventLog = Get-WinEvent -ListLog 'Microsoft-Windows-Sysmon/Operational'
+
+[pscustomobject]@{
+    Feature = 'Enabled'
+    Operation = $operation
+    Configuration = $resolvedConfig
+    SchemaVersion = $configuration.DocumentElement.schemaversion
+    Services = $services.Name -join ', '
+    ServiceStatus = ($services.Status | Select-Object -Unique) -join ', '
+    EventLogEnabled = $eventLog.IsEnabled
+    RestartNeeded = $false
+}
