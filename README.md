@@ -165,48 +165,6 @@ Sysmon Event ID **11** adds two Firefox-specific artifact signals under `%APPDAT
 
 These are file-write artifacts, not semantic "installation succeeded" audit records.
 
-## Configure Firefox extensions in Registry Editor
-
-Firefox does not use the Edge/Chrome external-extension registry layout. Use Mozilla's `ExtensionSettings` enterprise policy at the documented native policy root. The steps below create a machine-wide policy by hand.
-
-1. On the extension's [addons.mozilla.org](https://addons.mozilla.org/) listing, open **More information** and select **Copy add-on ID**. For an extension already installed locally, find its ID under **Add-ons** in `about:support`. Preserve braces when the ID is a UUID.
-2. Build the AMO install URL as `https://addons.mozilla.org/firefox/downloads/latest/ADDON_ID/latest.xpi`, replacing `ADDON_ID` with the copied ID. An explicit URL remains clear and compatible with Firefox versions before 153, where AMO `install_url` became optional.
-3. Close every Firefox window so the policy is read on the next browser start.
-4. Open Registry Editor as Administrator and navigate to `HKEY_LOCAL_MACHINE\SOFTWARE\Policies`.
-5. Create missing keys in this order: `Mozilla`, then `Firefox`. The final key must be `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox`.
-6. Select the `Firefox` key, choose **New > Multi-String Value**, and name the value `ExtensionSettings`. Its registry type must be `REG_MULTI_SZ`.
-7. Edit `ExtensionSettings` and enter valid JSON as a single line. Replace both `ADDON_ID` placeholders before saving:
-
-```json
-{"ADDON_ID":{"installation_mode":"force_installed","install_url":"https://addons.mozilla.org/firefox/downloads/latest/ADDON_ID/latest.xpi"}}
-```
-
-For multiple extensions, add each ID as another property in the same JSON object:
-
-```json
-{"FIRST_ADDON_ID":{"installation_mode":"force_installed","install_url":"https://addons.mozilla.org/firefox/downloads/latest/FIRST_ADDON_ID/latest.xpi"},"SECOND_ADDON_ID":{"installation_mode":"normal_installed","install_url":"https://addons.mozilla.org/firefox/downloads/latest/SECOND_ADDON_ID/latest.xpi"}}
-```
-
-`force_installed` installs the extension and prevents user removal. `normal_installed` installs it but allows the user to disable it. Do not add comments or trailing commas to the JSON. For a private XPI, use an approved HTTPS URL or a `file:///` URL instead of the AMO URL.
-
-8. Start Firefox and open `about:policies`. Confirm that **Active** shows `ExtensionSettings` and that the **Errors** tab is empty.
-9. Open `about:addons` and confirm the expected extension and management state.
-10. Confirm Sysmon captured the registry write and Firefox profile artifacts:
-
-```powershell
-$started = (Get-Date).AddMinutes(-15)
-Get-WinEvent -FilterHashtable @{
-  LogName = 'Microsoft-Windows-Sysmon/Operational'
-  Id = 11, 12, 13, 14
-  StartTime = $started
-} | Where-Object Message -Match 'Mozilla\\Firefox|extensions\.json|\.xpi' |
-  Select-Object TimeCreated, Id, Message
-```
-
-Expect Event IDs 12-14 for policy key/value lifecycle activity. Event ID 11 appears when Firefox writes a matching XPI or `extensions.json` artifact. To remove a managed extension, change its `installation_mode` to `blocked`, restart Firefox, verify removal, and then remove its property from the policy JSON if the block no longer needs to be enforced.
-
-Mozilla's older numbered policy is also monitored: string values named `1`, `2`, and so on can be placed below `...\Firefox\Extensions\Install` for XPI URLs or native paths, below `...\Locked` for IDs that users cannot disable or remove, and below `...\Uninstall` for IDs to remove. Mozilla recommends `ExtensionSettings` for new deployments because future improvements are made there.
-
 ## 🧪 Verify telemetry
 
 Confirm the service and inspect recent events:

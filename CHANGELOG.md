@@ -7,7 +7,7 @@ All notable project changes are documented in this file.
 ### Added
 
 - Added Mozilla Firefox extension telemetry for enterprise policy changes, defensive direct `Extensions` registry coverage, profile XPI writes, and `extensions.json` state changes.
-- Added step-by-step Registry Editor instructions for `ExtensionSettings`, AMO extension IDs and install URLs, policy verification, Sysmon verification, and managed removal.
+- Added `FIREFOX-EXTENSION-POLICY-GUIDE.md`, a standalone Registry Editor guide for blocking extensions by default, allowing explicit Firefox add-on IDs, user-driven installation from AMO web pages, policy testing, Sysmon verification, and revocation.
 
 ### Changed
 
