@@ -210,6 +210,105 @@ For compatibility across Firefox releases, provide an explicit AMO XPI URL:
 
 For a private signed XPI, use an approved HTTPS URL or a `file:///` URL. This automatic mode differs from the allow-and-install-from-the-web workflow.
 
+### Verified Grammarly XPI
+
+Mozilla's stable latest-version endpoint for the approved Grammarly ID is:
+
+```text
+https://addons.mozilla.org/firefox/downloads/latest/87677a2c52b84ad3a151a4a72f5bd3c4%40jetpack/latest.xpi
+```
+
+On 2026-08-24, that endpoint resolved to:
+
+```text
+https://addons.mozilla.org/firefox/downloads/file/4774290/grammarly_1-8.937.0.xpi
+```
+
+The downloaded artifact was verified against Mozilla's Add-ons API and its manifest:
+
+| Property | Verified value |
+| --- | --- |
+| Version | `8.937.0` |
+| Size | `42,614,714` bytes |
+| SHA-256 | `d8f2deca5a0d23d8d072ed24548d3897eef19bc871556b18d7c09e91c07139b7` |
+| Manifest ID | `87677a2c52b84ad3a151a4a72f5bd3c4@jetpack` |
+| Content type | `application/x-xpinstall` |
+| Signature containers | COSE and Mozilla JAR signature entries under `META-INF` |
+
+The stable endpoint is preferable to pinning file ID `4774290` because it follows the current compatible AMO release. Do not add `install_url` to the current `allowed` policy entry: Firefox ignores it for the user-driven workflow. Use the stable XPI URL only with `force_installed` or `normal_installed`, or when downloading an artifact for offline analysis.
+
+## Capture Firefox extension debug telemetry
+
+Firefox does not create a `chrome_debug.log` equivalent by default. Its Add-on Manager uses the JavaScript loggers `addons.manager`, `addons.xpi`, and `addons.xpi-utils`. Setting `extensions.logging.enabled=true` raises the parent `addons` logger from warnings to debug and writes messages to the Browser Console and standard error.
+
+The selected `default-release` profile in this environment enables that preference through:
+
+```javascript
+user_pref("extensions.logging.enabled", true);
+```
+
+The preference is intentionally profile-scoped. Remove that line from `user.js` after troubleshooting if continuous Add-on Manager debug output is not desired.
+
+### Automated UTC capture
+
+Close every Firefox process, open Windows PowerShell, move to the repository, and run:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1
+```
+
+The script validates the Firefox executable, selected profile, and logging preference; records the UTC start time; opens the Grammarly AMO listing in Firefox; redirects Firefox standard output and standard error to a debug log; and waits while you install the extension. Complete the Firefox permission prompt, verify the extension, and then close every Firefox window to end the capture.
+
+Grammarly's URL and add-on ID are the defaults. For another approved extension, provide both values so metadata and event filtering identify the correct add-on:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1 `
+    -AddonId 'approved-addon-id@example.com' `
+    -AddonUrl 'https://addons.mozilla.org/en-US/firefox/addon/approved-addon-slug/'
+```
+
+To include a newly exported XDR CSV in the same evidence bundle:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1 `
+    -XdrCsvPath C:\Path\To\xdr_results.csv
+```
+
+Use `-ValidateOnly` to check prerequisites without launching Firefox or creating output:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1 -ValidateOnly
+```
+
+Each run creates an ignored timestamped directory below `output\` containing:
+
+| Artifact | Purpose |
+| --- | --- |
+| `firefox_addon_manager_debug.log` | Firefox Add-on Manager/XPI debug output captured from standard output and error. |
+| `capture_metadata.json` | UTC window, Firefox/profile details, exit code, artifact paths, and event counts. |
+| `firefox_extension_policy.json` | Read-only snapshot of the effective `ExtensionSettings` registry value. |
+| `firefox_extensions_before.csv` | Extension state immediately before launch. |
+| `firefox_extensions_after.csv` | Extension state after Firefox exits. |
+| `sysmon_firefox_events_UTC.csv` | Flattened Firefox-related Sysmon events for timeline analysis. |
+| `sysmon_firefox_events_raw.clixml` | Raw exported Sysmon event objects for reprocessing. |
+| `xdr_results.csv` | Optional copy of the XDR export supplied with `-XdrCsvPath`. |
+
+The debug log is redirected through `cmd.exe` rather than relying only on `MOZ_LOG_FILE`, because Mozilla documents that sandboxed child processes may not be able to write directly to that file. The script also sets process-scoped `MOZ_LOG=timestamp,sync` and restores the caller's previous value after Firefox exits.
+
+### Correlate the capture
+
+Use `CaptureStartUtc` and `CaptureEndUtc` from `capture_metadata.json` as the shared time boundary. Correlate on:
+
+- Firefox process IDs and process GUIDs.
+- Add-on ID `87677a2c52b84ad3a151a4a72f5bd3c4@jetpack`.
+- XPI URLs, temporary XPI paths, and the installed profile XPI path.
+- `extensions.json` changes.
+- Sysmon RuleName `technique_id=T1176,technique_name=Browser Extensions` for registry policy activity.
+- Sysmon Event IDs 3, 11-15, 22, 23, and 26 for network, file, registry, DNS, and deletion evidence.
+- XDR event timestamps normalized to UTC.
+
+Treat the Firefox log, Sysmon records, and XDR export as independent evidence sources. A Firefox install-complete message is application telemetry; the profile XPI and `extensions.json` writes are file artifacts; and the policy registry event shows configuration state rather than proving that the add-on installed successfully.
+
 ## Verify Sysmon telemetry
 
 The Sysmon configuration monitors the Firefox policy root and Firefox profile artifacts. After changing `ExtensionSettings` or installing an approved extension, run:
@@ -259,3 +358,5 @@ Extensions removed by the default-deny policy are not automatically reinstalled 
 - [Firefox administrator reference: ExtensionSettings](https://firefox-admin-docs.mozilla.org/reference/policies/extensionsettings/)
 - [Firefox administrator reference: InstallAddonsPermission](https://firefox-admin-docs.mozilla.org/reference/policies/installaddonspermission/)
 - [Mozilla Extension Workshop: Enterprise distribution](https://extensionworkshop.com/documentation/enterprise/enterprise-distribution/)
+- [Mozilla Gecko logging](https://firefox-source-docs.mozilla.org/xpcom/logging.html)
+- [Mozilla Add-on Manager source documentation](https://firefox-source-docs.mozilla.org/toolkit/mozapps/extensions/addon-manager/)

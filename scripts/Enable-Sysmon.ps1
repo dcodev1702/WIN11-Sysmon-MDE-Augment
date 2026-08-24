@@ -25,6 +25,14 @@ function Test-IsAdministrator {
     $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Test-DnsClientOperationalLog {
+    param($EventLog)
+
+    return $null -ne $EventLog -and
+        $EventLog.IsEnabled -and
+        $EventLog.MaximumSizeInBytes -eq 2GB
+}
+
 if (-not (Test-IsAdministrator)) {
     throw 'Run this script from an elevated Windows PowerShell session.'
 }
@@ -95,6 +103,21 @@ if ($LASTEXITCODE -ne 0) {
     throw "wevtutil exited with code $LASTEXITCODE while setting the Sysmon Operational log size."
 }
 
+$dnsClientLogName = 'Microsoft-Windows-DNS-Client/Operational'
+$dnsClientEventLog = Get-WinEvent -ListLog $dnsClientLogName -ErrorAction Stop
+$dnsClientLogRemediated = $false
+if (-not (Test-DnsClientOperationalLog -EventLog $dnsClientEventLog)) {
+    & wevtutil.exe sl $dnsClientLogName /e:true /ms:2147483648
+    if ($LASTEXITCODE -ne 0) {
+        throw "wevtutil exited with code $LASTEXITCODE while enabling or sizing the DNS Client Operational log."
+    }
+    $dnsClientLogRemediated = $true
+    $dnsClientEventLog = Get-WinEvent -ListLog $dnsClientLogName -ErrorAction Stop
+}
+if (-not (Test-DnsClientOperationalLog -EventLog $dnsClientEventLog)) {
+    throw 'The DNS Client Operational log is not enabled at the required 2 GiB maximum size.'
+}
+
 $services = @(Get-Service -Name 'Sysmon*' -ErrorAction Stop)
 $eventLog = Get-WinEvent -ListLog 'Microsoft-Windows-Sysmon/Operational'
 
@@ -108,5 +131,10 @@ $eventLog = Get-WinEvent -ListLog 'Microsoft-Windows-Sysmon/Operational'
     EventLogEnabled = $eventLog.IsEnabled
     EventLogMaximumSizeBytes = $eventLog.MaximumSizeInBytes
     EventLogMaximumSizeGiB = [math]::Round($eventLog.MaximumSizeInBytes / 1GB, 2)
+    DnsCorrelationSource = $dnsClientLogName
+    DnsClientOperationalLogEnabled = $dnsClientEventLog.IsEnabled
+    DnsClientOperationalLogMaximumSizeBytes = $dnsClientEventLog.MaximumSizeInBytes
+    DnsClientOperationalLogMaximumSizeGiB = [math]::Round($dnsClientEventLog.MaximumSizeInBytes / 1GB, 2)
+    DnsClientOperationalLogRemediated = $dnsClientLogRemediated
     RestartNeeded = $false
 }

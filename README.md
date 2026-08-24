@@ -16,9 +16,9 @@ This project enables high-fidelity Sysmon telemetry that complements Microsoft D
 | File | Purpose |
 | --- | --- |
 | [`win11-sysmon-mde-augment.xml`](win11-sysmon-mde-augment.xml) | Olaf's MDE augment configuration plus browser extension registry and Firefox profile-artifact monitoring. |
-| [`scripts/Enable-Sysmon.ps1`](scripts/Enable-Sysmon.ps1) | Validates the XML, enables built-in Sysmon, and installs or updates the configuration. |
-| [`scripts/Test-Configuration.ps1`](scripts/Test-Configuration.ps1) | Verifies XML parsing and all browser registry, Firefox file, and noise-tuning rule boundaries. |
-| [`scripts/Protect-BrowserRegistryTelemetry.ps1`](scripts/Protect-BrowserRegistryTelemetry.ps1) | Reconstructs browser registry rules, Firefox file rules, and the closed local noise-rule allowlist after an upstream refresh. |
+| [`scripts/Enable-Sysmon.ps1`](scripts/Enable-Sysmon.ps1) | Validates and deploys Sysmon, then ensures DNS Client Operational is enabled at 2 GiB. |
+| [`scripts/Test-Configuration.ps1`](scripts/Test-Configuration.ps1) | Verifies XML parsing, browser telemetry boundaries, noise tuning, and the Sysmon DNS-off invariant. |
+| [`scripts/Protect-BrowserRegistryTelemetry.ps1`](scripts/Protect-BrowserRegistryTelemetry.ps1) | Reconstructs local browser/noise rules and the DNS-off invariant after an upstream refresh. |
 | [`CHANGELOG.md`](CHANGELOG.md) | Chronological record of telemetry and tuning changes. |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Attribution and license notice for the upstream configuration. |
 
@@ -57,6 +57,7 @@ The installer:
 4. Uses `sysmon -i` for a new installation or `sysmon -c` for an existing built-in installation.
 5. Confirms the service and `Microsoft-Windows-Sysmon/Operational` event log exist.
 6. Sets the Sysmon Operational channel maximum size to **4 GiB** and reports the effective size.
+7. Tests whether `Microsoft-Windows-DNS-Client/Operational` is enabled at exactly **2 GiB**; if either condition is false, it enables the channel, sets the size, and verifies both conditions again.
 
 If Windows reports that a restart is required, restart the device and run the script again. Preview the planned action without changing Windows with:
 
@@ -76,6 +77,7 @@ New-Item -ItemType Directory -Path C:\Sysmon -Force
 Copy-Item .\win11-sysmon-mde-augment.xml C:\Sysmon\win11-sysmon-mde-augment.xml
 sysmon -i C:\Sysmon\win11-sysmon-mde-augment.xml
 wevtutil sl Microsoft-Windows-Sysmon/Operational /ms:4294967296
+wevtutil sl Microsoft-Windows-DNS-Client/Operational /e:true /ms:2147483648
 ```
 
 Restart Windows after enabling the optional feature if requested, then continue with `sysmon -i`. Configuration changes take effect immediately and do not otherwise require a restart.
@@ -165,6 +167,21 @@ Sysmon Event ID **11** adds two Firefox-specific artifact signals under `%APPDAT
 
 These are file-write artifacts, not semantic "installation succeeded" audit records.
 
+## DNS correlation source
+
+Sysmon Event ID **22** is explicitly disabled in this profile. Endpoint DNS detection and correlation use `Microsoft-Windows-DNS-Client/Operational`, which the installer keeps enabled with a **2 GiB** circular log. Relevant records include:
+
+| DNS Client event | Correlation value |
+| --- | --- |
+| 3006 | Query start with requesting process ID, name, type, and options. |
+| 3008 | Query completion with requesting process ID, name, type, status, and results. |
+| 3009–3011 | Network path, DNS server, response, and `ClientPID` details from the DNS Client service. |
+| 3016–3020 | Cache/wire-query stages, status, answers, and `ClientPID`. |
+
+A controlled Edge test resolved a unique name through Edge's `network.mojom.NetworkService` PID `13636`. DNS Client Event 3008 retained the name and status, while Sysmon ProcessCreate mapped that PID to ProcessGuid `{825293f1-a8f9-6a8c-d245-000000002600}`. MDE's `MsSense.exe` independently queried the same name 23 times shortly afterward, providing a second detection-pipeline correlation point. No Sysmon Event 22 records were retained during either the Edge or PowerShell tests.
+
+The DNS Client channel observes requests that use the Windows resolver. Browser DNS-over-HTTPS can bypass it; correlate browser debug telemetry, network security controls, or XDR network events when complete secure-DNS visibility is required. The controlled NXDOMAIN test caused unusually high Defender follow-up volume and must not be treated as a normal retention baseline.
+
 ## 🧪 Verify telemetry
 
 Confirm the service and inspect recent events:
@@ -205,7 +222,7 @@ Use this test only on a lab device or in an approved maintenance window. Remove 
 - Pilot on representative Windows 11 devices before broad deployment.
 - Baseline event volume and tune noisy rules for your software estate.
 - Monitor Sysmon Event ID 4 for service state changes, ID 16 for configuration changes, and ID 255 for errors.
-- Preserve all twelve browser registry patterns and both Firefox Event ID 11 rules when refreshing the upstream MDE augment file.
+- Preserve all twelve browser registry patterns, both Firefox Event ID 11 rules, and the empty Event ID 22 exclusion when refreshing the upstream MDE augment file.
 - After replacing the XML from upstream, run `scripts\Protect-BrowserRegistryTelemetry.ps1` and then `scripts\Test-Configuration.ps1` before deployment.
 - Keep one controlled configuration version per endpoint role where practical.
 - Treat Sysmon events as evidence, not alerts; correlate them with MDE and identity/network telemetry.

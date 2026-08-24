@@ -1719,14 +1719,14 @@
         <Operation name="technique_id=T1047,technique_name=Windows Management Instrumentation" condition="is">Created</Operation>
       </WmiEvent>
     </RuleGroup>
-    <!-- Event ID 22 == DNS Queries and their results - Sysmon will provide way more visibility here. MDE only records responses to successful requests and less query types. -->
+    <!-- Event ID 22 == DNS Queries and their results - disabled locally. -->
+    <!-- Microsoft-Windows-DNS-Client/Operational is the authoritative endpoint DNS source and is sized to 2 GiB. -->
+    <!-- It retains query names, types, status/results, UTC timestamps, and client PIDs for ProcessCreate correlation. -->
     <RuleGroup groupRelation="or">
-      <!--Default to log all and exclude a few common processes-->
-      <DnsQuery onmatch="include" />
+      <DnsQuery onmatch="exclude" />
     </RuleGroup>
-    <!-- Event ID 22 == DNS Queries and their results - Excludes. -->
+    <!-- Upstream Event ID 22 exclusions retained for refresh comparison; the empty exclusion above takes precedence. -->
     <RuleGroup groupRelation="or">
-      <!--Default to log all and exclude a few common processes-->
       <DnsQuery onmatch="exclude">
         <QueryName condition="end with">.1rx.io</QueryName>
         <QueryName condition="end with">.2mdn.net</QueryName>

@@ -8,6 +8,8 @@ All notable project changes are documented in this file.
 
 - Added Mozilla Firefox extension telemetry for enterprise policy changes, defensive direct `Extensions` registry coverage, profile XPI writes, and `extensions.json` state changes.
 - Added `FIREFOX-EXTENSION-POLICY-GUIDE.md`, a standalone Registry Editor guide for blocking extensions by default, allowing explicit Firefox add-on IDs, user-driven installation from AMO web pages, policy testing, Sysmon verification, and revocation.
+- Added `scripts/Capture-FirefoxExtensionTelemetry.ps1` to capture Firefox Add-on Manager debug output, before/after extension state, UTC-scoped Sysmon events, policy state, and an optional XDR CSV in one evidence bundle; `-AddonId` and `-AddonUrl` support controlled captures of extensions other than the Grammarly defaults.
+- Documented the verified Grammarly XPI stable endpoint, version, size, SHA-256, manifest ID, and signature containers.
 
 ### Changed
 
@@ -18,6 +20,9 @@ All notable project changes are documented in this file.
 - Added three exact Windows Time registry exclusions for periodic `svchost.exe` health-state operations while preserving all other W32Time activity.
 - Kept RegistryEvent exclusion rules unnamed in XML after live testing showed partially matched named exclusions can overwrite `RuleName` on unrelated retained events; comments and validator labels preserve operator context.
 - Set the Sysmon Operational channel maximum size to 4 GiB and made that setting part of `Enable-Sysmon.ps1`.
+- Disabled Sysmon Event ID 22 explicitly and selected `Microsoft-Windows-DNS-Client/Operational` as the endpoint DNS correlation source.
+- Updated `Enable-Sysmon.ps1` to test whether DNS Client Operational is enabled at exactly 2 GiB, remediate either failed condition, and verify the resulting state.
+- Updated validation and upstream-refresh protection to prevent accidental Sysmon DNS re-enablement.
 - Added a UTC-normalized ColorZilla timeline correlating `chrome_debug.log`, Sysmon Operational events, and `xdr_results.csv`.
 - Moved generated HTML reports into the ignored `output/` directory and replaced the global `*.html` ignore rule with `output/`.
 
@@ -29,6 +34,7 @@ All notable project changes are documented in this file.
 - Retained BAM execution-history writes, TCP/IP probes, MDE TelLib defense-health writes, VS Code high-signal ProcessAccess, and VS Code named-pipe startup bursts rather than suppressing them on volume alone.
 - Observed 53 unrelated retained `svchost.exe` registry events carrying a partially matched W32Time exclusion name, then removed exclusion `name` attributes to preserve downstream RuleName fidelity.
 - Post-load validation retained 176 events over 115.79 seconds (1.52 events/second) and 66 non-W32Time registry events while recording zero excluded W32Time tuples and zero Event ID 255 errors; after one queued interim-config event, the next 198 registry events had zero local-noise RuleName labels.
+- Verified DNS Client correlation with a unique PowerShell NXDOMAIN lookup and an isolated Edge lookup. Edge's DNS event PID `13636` joined to Sysmon ProcessCreate Record `208373` and ProcessGuid `{825293f1-a8f9-6a8c-d245-000000002600}`; `MsSense.exe` generated 23 follow-up completions for the same unique name, while Sysmon retained zero Event ID 22 records.
 
 ### Browser registry signal structure
 

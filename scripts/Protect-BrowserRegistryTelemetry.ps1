@@ -194,12 +194,41 @@ function Test-FirefoxFileCreateRules {
     return $true
 }
 
+function Test-DnsQueryDisabled {
+    $includes = @($configuration.SelectNodes("//DnsQuery[@onmatch='include']"))
+    $excludeAllRules = @($configuration.SelectNodes("//DnsQuery[@onmatch='exclude']") | Where-Object {
+        @($_.ChildNodes | Where-Object {
+            $_.NodeType -eq [System.Xml.XmlNodeType]::Element
+        }).Count -eq 0
+    })
+    return $includes.Count -eq 0 -and $excludeAllRules.Count -eq 1
+}
+
+function Remove-DnsQueryNode {
+    param([System.Xml.XmlElement] $DnsQuery)
+
+    $ruleGroup = $DnsQuery.ParentNode
+    $null = $ruleGroup.RemoveChild($DnsQuery)
+    $remainingElements = @($ruleGroup.ChildNodes | Where-Object {
+        $_.NodeType -eq [System.Xml.XmlNodeType]::Element
+    })
+    if ($ruleGroup.LocalName -eq 'RuleGroup' -and $remainingElements.Count -eq 0) {
+        $eventFiltering = $ruleGroup.ParentNode
+        $precedingWhitespace = $ruleGroup.PreviousSibling
+        $null = $eventFiltering.RemoveChild($ruleGroup)
+        if ($precedingWhitespace -and $precedingWhitespace.NodeType -eq [System.Xml.XmlNodeType]::Whitespace) {
+            $null = $eventFiltering.RemoveChild($precedingWhitespace)
+        }
+    }
+}
+
 $approvedExclusionValid = $registryExclusions.Count -eq 1 -and
     (Test-ApprovedRegistryExclusion -RegistryExclusion $registryExclusions[0])
 $browserRulesValid = Test-BrowserRegistryRules
 $firefoxFileRulesValid = Test-FirefoxFileCreateRules
+$dnsQueryDisabled = Test-DnsQueryDisabled
 
-if ($approvedExclusionValid -and $browserRulesValid -and $firefoxFileRulesValid) {
+if ($approvedExclusionValid -and $browserRulesValid -and $firefoxFileRulesValid -and $dnsQueryDisabled) {
     return [pscustomobject]@{
         Configuration = $resolvedConfig
         RemovedExclusionGroups = 0
@@ -208,6 +237,8 @@ if ($approvedExclusionValid -and $browserRulesValid -and $firefoxFileRulesValid)
         RegistryNoiseTuningRules = $approvedRegistryRuleDefinitions.Count
         BrowserRegistryRules = $browserPatterns.Count
         FirefoxFileCreateRules = $firefoxFileRuleDefinitions.Count
+        SysmonDnsQueryEnabled = $false
+        DnsQueryRuleRepaired = $false
         Status = 'AlreadyProtected'
     }
 }
@@ -283,6 +314,36 @@ if (-not $approvedExclusionValid) {
     $null = $eventFiltering.AppendChild($ruleGroup)
 }
 
+if (-not $dnsQueryDisabled) {
+    $emptyDnsQueries = @($configuration.SelectNodes('//DnsQuery') | Where-Object {
+        @($_.ChildNodes | Where-Object {
+            $_.NodeType -eq [System.Xml.XmlNodeType]::Element
+        }).Count -eq 0
+    })
+    $primaryDnsQuery = $emptyDnsQueries | Select-Object -First 1
+    if (-not $primaryDnsQuery) {
+        $eventFiltering = $configuration.SelectSingleNode('/Sysmon/EventFiltering')
+        $ruleGroup = $configuration.CreateElement('RuleGroup')
+        $ruleGroup.SetAttribute('groupRelation', 'or')
+        $primaryDnsQuery = $configuration.CreateElement('DnsQuery')
+        $null = $ruleGroup.AppendChild($primaryDnsQuery)
+        $null = $eventFiltering.AppendChild($ruleGroup)
+    }
+    $primaryDnsQuery.SetAttribute('onmatch', 'exclude')
+
+    foreach ($dnsQuery in @($configuration.SelectNodes('//DnsQuery'))) {
+        if ([object]::ReferenceEquals($dnsQuery, $primaryDnsQuery)) {
+            continue
+        }
+        $elementChildren = @($dnsQuery.ChildNodes | Where-Object {
+            $_.NodeType -eq [System.Xml.XmlNodeType]::Element
+        })
+        if ($dnsQuery.GetAttribute('onmatch') -eq 'include' -or $elementChildren.Count -eq 0) {
+            Remove-DnsQueryNode -DnsQuery $dnsQuery
+        }
+    }
+}
+
 $temporaryPath = "$resolvedConfig.tmp"
 try {
     $settings = New-Object System.Xml.XmlWriterSettings
@@ -310,5 +371,7 @@ try {
     RegistryNoiseTuningRules = $approvedRegistryRuleDefinitions.Count
     BrowserRegistryRules = $browserPatterns.Count
     FirefoxFileCreateRules = $firefoxFileRuleDefinitions.Count
+    SysmonDnsQueryEnabled = $false
+    DnsQueryRuleRepaired = -not $dnsQueryDisabled
     Status = 'Protected'
 }

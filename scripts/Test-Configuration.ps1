@@ -22,6 +22,20 @@ if ($configuration.DocumentElement.Name -ne 'Sysmon') {
     throw "The configuration root must be Sysmon: $resolvedConfig"
 }
 
+$dnsQueryIncludes = @($configuration.SelectNodes("//DnsQuery[@onmatch='include']"))
+$dnsQueryExclusions = @($configuration.SelectNodes("//DnsQuery[@onmatch='exclude']"))
+$dnsQueryExcludeAllRules = @($dnsQueryExclusions | Where-Object {
+    @($_.ChildNodes | Where-Object {
+        $_.NodeType -eq [System.Xml.XmlNodeType]::Element
+    }).Count -eq 0
+})
+if ($dnsQueryIncludes.Count -ne 0) {
+    throw "Sysmon DNS query collection must remain disabled; found $($dnsQueryIncludes.Count) include rule(s)."
+}
+if ($dnsQueryExcludeAllRules.Count -ne 1) {
+    throw "Expected one empty DnsQuery exclusion, found $($dnsQueryExcludeAllRules.Count)."
+}
+
 $ruleName = 'technique_id=T1176,technique_name=Browser Extensions'
 $browserRules = @($configuration.SelectNodes("//RegistryEvent[@onmatch='include']/TargetObject[@name='$ruleName']"))
 $chromiumPolicyPatterns = @(
@@ -288,5 +302,9 @@ if (
     RegistryNoiseTuningRules = $approvedRegistryRuleDefinitions.Count
     VSCodeAppDataNoiseSuppressed = $true
     BrowserEventsUnconditionallyIncluded = $true
+    SysmonDnsQueryIncludeRules = $dnsQueryIncludes.Count
+    SysmonDnsQueryExcludeAllRules = $dnsQueryExcludeAllRules.Count
+    SysmonDnsQueryEnabled = $false
+    DnsCorrelationSource = 'Microsoft-Windows-DNS-Client/Operational'
     Status = 'Valid'
 }
