@@ -18,7 +18,7 @@ This project enables high-fidelity Sysmon telemetry that complements Microsoft D
 | [`win11-sysmon-mde-augment.xml`](win11-sysmon-mde-augment.xml) | Olaf's MDE augment configuration plus browser extension registry and Firefox profile-artifact monitoring. |
 | [`scripts/Enable-Sysmon.ps1`](scripts/Enable-Sysmon.ps1) | Validates the XML, enables built-in Sysmon, and installs or updates the configuration. |
 | [`scripts/Test-Configuration.ps1`](scripts/Test-Configuration.ps1) | Verifies XML parsing and all browser registry, Firefox file, and noise-tuning rule boundaries. |
-| [`scripts/Protect-BrowserRegistryTelemetry.ps1`](scripts/Protect-BrowserRegistryTelemetry.ps1) | Reconstructs browser registry rules, Firefox file rules, and the approved MDE noise rule after an upstream refresh. |
+| [`scripts/Protect-BrowserRegistryTelemetry.ps1`](scripts/Protect-BrowserRegistryTelemetry.ps1) | Reconstructs browser registry rules, Firefox file rules, and the closed local noise-rule allowlist after an upstream refresh. |
 | [`CHANGELOG.md`](CHANGELOG.md) | Chronological record of telemetry and tuning changes. |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Attribution and license notice for the upstream configuration. |
 
@@ -150,7 +150,9 @@ Mozilla recommends `ExtensionSettings` enterprise policy for current Firefox dep
 
 The XML maps these additions to MITRE ATT&CK **T1176: Browser Extensions**. Values beneath the watched policy roots contain extension identifiers, install URLs, or policy JSON, so changes are useful for detecting unauthorized allowlisting, blocking, or silent force-installation.
 
-Because Sysmon exclusion rules take precedence over include rules, this configuration replaces the upstream `RegistryEvent onmatch="exclude"` group with one approved rule that can match only `MsSense.exe` `CreateKey` probes under `HKLM\System\CurrentControlSet\Services\`. It cannot match any Edge, Chrome, or Firefox extension root, so create, modify, delete, and rename telemetry remains unconditional for the requested browser paths. Other event-family exclusions from the MDE augment profile remain unchanged.
+Because Sysmon exclusion rules take precedence over include rules, this configuration replaces the upstream `RegistryEvent onmatch="exclude"` group with one closed allowlist containing four exact AND rules: one for `MsSense.exe` `CreateKey` probes under `HKLM\System\CurrentControlSet\Services\` and three for periodic Windows Time health-state operations. None can match an Edge, Chrome, or Firefox extension root, so create, modify, delete, and rename telemetry remains unconditional for the requested browser paths. Other event-family exclusions from the MDE augment profile remain unchanged.
+
+The four exclusion rules intentionally omit XML `name` attributes. Live testing showed that Sysmon can stamp the name of a partially matched exclusion rule onto an unrelated event that remains included. Comments and validator metadata retain readable labels without corrupting the `RuleName` field used by downstream detections.
 
 ### Firefox profile artifacts
 
@@ -264,6 +266,28 @@ A retained-log baseline on **2026-08-24** measured **23,074 events in 267.5 seco
 These are environment-observed suppressions, not general endorsements to ignore VS Code or MDE activity. Reassess them when executable paths, endpoint roles, or threat models change. The Chrome extension installation itself was not noisy: Sysmon retained four Event ID 15 records for the CRX download, SHA-256, Internet Zone marker, and Chrome Web Store referrer.
 
 After loading the tuned configuration, a 125.3-second sample retained 247 events at **1.97 events/second**, a **97.7% reduction** from baseline. Neither suppressed pattern appeared, Event ID 255 remained at zero, and other ProcessAccess and registry activity continued to surface. Treat this as a local preliminary measurement and continue monitoring over normal business cycles.
+
+### Windows Time follow-up
+
+A follow-up retained-log review on **2026-08-24** covered **8.15 hours** from `08:50:32` through `16:59:37` UTC. It found **5,418** events from three Windows Time health-state operations: 1,806 occurrences of each operation, all from `C:\Windows\System32\svchost.exe`, with a median interval of **16.0045 seconds** and a 95th-percentile interval no greater than **16.0141 seconds**. `LastGoodSampleInfo` identified the `VM IC Time Synchronization Provider`; no other image or event-type combination touched the three exact targets.
+
+| Operation | Exact exclusion boundary | Preserved security behavior |
+| --- | --- | --- |
+| ID 12 `CreateKey` on `HKLM\System\CurrentControlSet\Services\W32Time\Config\Status` | Exact `svchost.exe` image, `CreateKey` event type, and exact target. | Other images, descendants, deletes, renames, and all other W32Time keys remain visible. |
+| ID 13 `SetValue` on `...\W32Time\Config\LastKnownGoodTime` | Exact `svchost.exe` image, `SetValue` event type, and exact target. | W32Time configuration and provider changes remain visible. |
+| ID 13 `SetValue` on `...\W32Time\Config\Status\LastGoodSampleInfo` | Exact `svchost.exe` image, `SetValue` event type, and exact target. | Non-health state changes and writes by any other image remain visible. |
+
+The three rules remove about **665 events/hour** on this Hyper-V guest without using a W32Time prefix exclusion. A pre-change sample under the current browser configuration retained **1,408 events over 763.87 seconds** (**1.84 events/second**) with zero Event ID 255 errors.
+
+Post-load verification over **115.79 seconds** retained **176 events** at **1.52 events/second**, including 66 non-W32Time registry events, while all three exact W32Time tuple counts and Event ID 255 remained at zero. One event already queued under an interim named configuration arrived 0.623 seconds after the configuration-change event; after that in-flight record, the next 198 retained registry events contained zero local-noise RuleName labels and zero excluded W32Time targets.
+
+No additional exclusion was approved for the other high-volume observations:
+
+- BAM `State\UserSettings` writes remain because they provide forensic execution history.
+- TCP/IP service-key probes remain because network-configuration tampering is security relevant.
+- `MsSense.exe` TelLib writes remain because they map to defense-health and impairment telemetry outside the existing service-key probe boundary.
+- VS Code ProcessAccess remains because the retained events match independent full-access, credential, or injection conditions rather than the broad AppData path rule.
+- VS Code `\uv\` named pipes remain because they were process-start bursts from an extensible editor, not sustained background volume.
 
 ## 🙏 Credits
 

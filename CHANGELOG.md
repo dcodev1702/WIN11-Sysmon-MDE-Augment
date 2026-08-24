@@ -15,9 +15,20 @@ All notable project changes are documented in this file.
 - Updated README links and commands for the new script paths.
 - Expanded Edge and Chrome registry monitoring to managed policy and native external-extension roots across HKLM, HKU user hives, native views, and WOW6432Node views.
 - Updated validation and upstream-refresh protection to enforce all twelve browser registry patterns, root/key/value descendant coverage, and both Firefox FileCreate rules.
+- Added three exact Windows Time registry exclusions for periodic `svchost.exe` health-state operations while preserving all other W32Time activity.
+- Kept RegistryEvent exclusion rules unnamed in XML after live testing showed partially matched named exclusions can overwrite `RuleName` on unrelated retained events; comments and validator labels preserve operator context.
 - Set the Sysmon Operational channel maximum size to 4 GiB and made that setting part of `Enable-Sysmon.ps1`.
 - Added a UTC-normalized ColorZilla timeline correlating `chrome_debug.log`, Sysmon Operational events, and `xdr_results.csv`.
 - Moved generated HTML reports into the ignored `output/` directory and replaced the global `*.html` ignore rule with `output/`.
+
+### Observed
+
+- Profiled the retained Sysmon Operational log across 8.15 hours and found 5,418 W32Time health-state events: 1,806 each for one exact `CreateKey` target and two exact `SetValue` targets.
+- Measured a 16.0045-second median interval and no greater than 16.0141-second p95 interval for those operations; all were emitted by `C:\Windows\System32\svchost.exe`, and `LastGoodSampleInfo` identified the VM IC Time Synchronization Provider.
+- Measured 1,408 events over 763.87 seconds (1.84 events/second) with zero Event ID 255 errors in the pre-change current-configuration sample.
+- Retained BAM execution-history writes, TCP/IP probes, MDE TelLib defense-health writes, VS Code high-signal ProcessAccess, and VS Code named-pipe startup bursts rather than suppressing them on volume alone.
+- Observed 53 unrelated retained `svchost.exe` registry events carrying a partially matched W32Time exclusion name, then removed exclusion `name` attributes to preserve downstream RuleName fidelity.
+- Post-load validation retained 176 events over 115.79 seconds (1.52 events/second) and 66 non-W32Time registry events while recording zero excluded W32Time tuples and zero Event ID 255 errors; after one queued interim-config event, the next 198 registry events had zero local-noise RuleName labels.
 
 ### Browser registry signal structure
 
@@ -42,7 +53,7 @@ All notable project changes are documented in this file.
 	- Event ID 12: `CreateKey`, `DeleteKey`, and `DeleteValue` object lifecycle activity.
 	- Event ID 13: `SetValue`, including initial value creation and subsequent modification.
 	- Event ID 14: key or value rename activity.
-- Exclude precedence remains bounded to one approved AND rule: exact image `MsSense.exe`, exact `CreateKey` event type, and `HKLM\System\CurrentControlSet\Services\`. It cannot overlap any Edge, Chrome, or Firefox browser pattern, so browser extension registry events remain included regardless of the writing process.
+- Exclude precedence remains bounded to four approved AND rules: one exact MDE service-key probe boundary and three exact Windows Time health-state boundaries. None can overlap any Edge, Chrome, or Firefox browser pattern, so browser extension registry events remain included regardless of the writing process.
 - Firefox Event ID 11 rules capture `firefox.exe` writes to profile `extensions\*.xpi` files as install/update artifacts and `extensions.json` as corroborating extension-state activity.
 - The ColorZilla capture demonstrates the managed signal path: Records `153155`, `153172`, `153173`, and `153174` surfaced allowlist value creation, rename/delete, and population with extension ID `bhlhnicpbhignbdhedgjhgdocnmhomnp` under RuleName T1176.
 - The same capture exposed the former native-path gap at `HKLM\Software\Google\Chrome\Extensions\<extension-id>`. The native-root patterns close that gap for future Edge, Chrome, and defensive Firefox direct-registration activity.

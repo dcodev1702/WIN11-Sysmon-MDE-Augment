@@ -1616,13 +1616,32 @@
         <TargetObject name="technique_id=T1047,technique_name=Windows Management Instrumentation" condition="contains all">HKLM\SYSTEM\;Control\WMI\Security</TargetObject>
       </RegistryEvent>
     </RuleGroup>
-    <!-- Event IDs 12,13,14 == Local noise tuning. This rule cannot match the Edge or Chrome policy trees above. -->
+    <!-- Event IDs 12,13,14 == Local noise tuning. These rules cannot match the browser extension trees above. -->
     <RuleGroup groupRelation="or">
       <RegistryEvent onmatch="exclude">
-        <Rule name="Local noise tuning: MDE service key probes" groupRelation="and">
+        <!-- Local noise tuning: MDE service key probes. -->
+        <Rule groupRelation="and">
           <Image condition="is">C:\Program Files\Windows Defender Advanced Threat Protection\MsSense.exe</Image>
           <EventType condition="is">CreateKey</EventType>
           <TargetObject condition="begin with">HKLM\System\CurrentControlSet\Services\</TargetObject>
+        </Rule>
+        <!-- Local noise tuning: Windows Time status key probe. -->
+        <Rule groupRelation="and">
+          <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+          <EventType condition="is">CreateKey</EventType>
+          <TargetObject condition="is">HKLM\System\CurrentControlSet\Services\W32Time\Config\Status</TargetObject>
+        </Rule>
+        <!-- Local noise tuning: Windows Time last-known-good value. -->
+        <Rule groupRelation="and">
+          <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+          <EventType condition="is">SetValue</EventType>
+          <TargetObject condition="is">HKLM\System\CurrentControlSet\Services\W32Time\Config\LastKnownGoodTime</TargetObject>
+        </Rule>
+        <!-- Local noise tuning: Windows Time sample-health value. -->
+        <Rule groupRelation="and">
+          <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+          <EventType condition="is">SetValue</EventType>
+          <TargetObject condition="is">HKLM\System\CurrentControlSet\Services\W32Time\Config\Status\LastGoodSampleInfo</TargetObject>
         </Rule>
       </RegistryEvent>
     </RuleGroup>

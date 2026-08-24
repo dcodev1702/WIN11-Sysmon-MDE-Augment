@@ -61,29 +61,81 @@ if ($browserRules.Count -ne $expectedPatterns.Count) {
 }
 
 $registryExclusions = @($configuration.SelectNodes("//RegistryEvent[@onmatch='exclude']"))
-$approvedRuleName = 'Local noise tuning: MDE service key probes'
+$approvedRegistryRuleDefinitions = @(
+    [pscustomobject]@{
+        Name = 'Local noise tuning: MDE service key probes'
+        Conditions = @(
+            @('Image', 'is', 'C:\Program Files\Windows Defender Advanced Threat Protection\MsSense.exe'),
+            @('EventType', 'is', 'CreateKey'),
+            @('TargetObject', 'begin with', 'HKLM\System\CurrentControlSet\Services\')
+        )
+    },
+    [pscustomobject]@{
+        Name = 'Local noise tuning: Windows Time status key probe'
+        Conditions = @(
+            @('Image', 'is', 'C:\Windows\System32\svchost.exe'),
+            @('EventType', 'is', 'CreateKey'),
+            @('TargetObject', 'is', 'HKLM\System\CurrentControlSet\Services\W32Time\Config\Status')
+        )
+    },
+    [pscustomobject]@{
+        Name = 'Local noise tuning: Windows Time last-known-good value'
+        Conditions = @(
+            @('Image', 'is', 'C:\Windows\System32\svchost.exe'),
+            @('EventType', 'is', 'SetValue'),
+            @('TargetObject', 'is', 'HKLM\System\CurrentControlSet\Services\W32Time\Config\LastKnownGoodTime')
+        )
+    },
+    [pscustomobject]@{
+        Name = 'Local noise tuning: Windows Time sample-health value'
+        Conditions = @(
+            @('Image', 'is', 'C:\Windows\System32\svchost.exe'),
+            @('EventType', 'is', 'SetValue'),
+            @('TargetObject', 'is', 'HKLM\System\CurrentControlSet\Services\W32Time\Config\Status\LastGoodSampleInfo')
+        )
+    }
+)
 if ($registryExclusions.Count -ne 1) {
     throw "Expected one approved RegistryEvent exclusion group, found $($registryExclusions.Count)."
 }
 
 $registryExclusionRules = @($registryExclusions[0].SelectNodes('Rule'))
-if ($registryExclusionRules.Count -ne 1) {
+if ($registryExclusionRules.Count -ne $approvedRegistryRuleDefinitions.Count) {
     throw 'The RegistryEvent exclusion group contains unapproved rules.'
 }
 
-$approvedRule = $registryExclusionRules[0]
-$approvedConditions = @($approvedRule.ChildNodes | Where-Object {
-    $_.NodeType -eq [System.Xml.XmlNodeType]::Element
-})
-if (
-    $approvedRule.GetAttribute('name') -ne $approvedRuleName -or
-    $approvedRule.groupRelation -ne 'and' -or
-    $approvedConditions.Count -ne 3 -or
-    $approvedRule.SelectNodes("Image[@condition='is' and text()='C:\Program Files\Windows Defender Advanced Threat Protection\MsSense.exe']").Count -ne 1 -or
-    $approvedRule.SelectNodes("EventType[@condition='is' and text()='CreateKey']").Count -ne 1 -or
-    $approvedRule.SelectNodes("TargetObject[@condition='begin with' and text()='HKLM\System\CurrentControlSet\Services\']").Count -ne 1
-) {
-    throw 'The approved MDE registry noise-tuning rule is missing or has changed.'
+foreach ($definition in $approvedRegistryRuleDefinitions) {
+    $targetDefinition = @($definition.Conditions | Where-Object {
+        $_[0] -eq 'TargetObject'
+    })[0]
+    $matchingRules = @($registryExclusionRules | Where-Object {
+        $target = $_.SelectSingleNode('TargetObject')
+        -not $_.HasAttribute('name') -and
+        $target -and
+        $target.GetAttribute('condition') -ceq $targetDefinition[1] -and
+        $target.InnerText -ceq $targetDefinition[2]
+    })
+    if ($matchingRules.Count -ne 1 -or $matchingRules[0].GetAttribute('groupRelation') -ne 'and') {
+        throw "The approved registry noise-tuning rule is missing or duplicated: $($definition.Name)."
+    }
+
+    $conditions = @($matchingRules[0].ChildNodes | Where-Object {
+        $_.NodeType -eq [System.Xml.XmlNodeType]::Element
+    })
+    if ($conditions.Count -ne $definition.Conditions.Count) {
+        throw "The approved registry noise-tuning rule has changed: $($definition.Name)."
+    }
+
+    foreach ($conditionDefinition in $definition.Conditions) {
+        $matches = @($conditions | Where-Object {
+            $_.LocalName -ceq $conditionDefinition[0] -and
+            $_.GetAttribute('condition') -ceq $conditionDefinition[1] -and
+            $_.InnerText -ceq $conditionDefinition[2]
+        })
+        if ($matches.Count -ne 1) {
+            throw "The approved registry noise-tuning rule has changed: $($definition.Name)."
+        }
+    }
 }
 
 foreach ($pattern in $expectedPatterns) {
@@ -231,7 +283,9 @@ if (
     MachineAndUserHivesCovered = $true
     NativeAndWow6432ViewsCovered = $true
     RegistryExcludeGroups = $registryExclusions.Count
-    ApprovedRegistryNoiseRule = $approvedRuleName
+    ApprovedRegistryNoiseRule = $approvedRegistryRuleDefinitions[0].Name
+    ApprovedRegistryNoiseRules = @($approvedRegistryRuleDefinitions.Name)
+    RegistryNoiseTuningRules = $approvedRegistryRuleDefinitions.Count
     VSCodeAppDataNoiseSuppressed = $true
     BrowserEventsUnconditionallyIncluded = $true
     Status = 'Valid'

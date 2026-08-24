@@ -19,7 +19,40 @@ $resolvedConfig = (Resolve-Path -LiteralPath $ConfigPath).ProviderPath
 $configuration = New-Object System.Xml.XmlDocument
 $configuration.PreserveWhitespace = $true
 $configuration.Load($resolvedConfig)
-$approvedRuleName = 'Local noise tuning: MDE service key probes'
+$approvedRegistryRuleDefinitions = @(
+    [pscustomobject]@{
+        Name = 'Local noise tuning: MDE service key probes'
+        Conditions = @(
+            @('Image', 'is', 'C:\Program Files\Windows Defender Advanced Threat Protection\MsSense.exe'),
+            @('EventType', 'is', 'CreateKey'),
+            @('TargetObject', 'begin with', 'HKLM\System\CurrentControlSet\Services\')
+        )
+    },
+    [pscustomobject]@{
+        Name = 'Local noise tuning: Windows Time status key probe'
+        Conditions = @(
+            @('Image', 'is', 'C:\Windows\System32\svchost.exe'),
+            @('EventType', 'is', 'CreateKey'),
+            @('TargetObject', 'is', 'HKLM\System\CurrentControlSet\Services\W32Time\Config\Status')
+        )
+    },
+    [pscustomobject]@{
+        Name = 'Local noise tuning: Windows Time last-known-good value'
+        Conditions = @(
+            @('Image', 'is', 'C:\Windows\System32\svchost.exe'),
+            @('EventType', 'is', 'SetValue'),
+            @('TargetObject', 'is', 'HKLM\System\CurrentControlSet\Services\W32Time\Config\LastKnownGoodTime')
+        )
+    },
+    [pscustomobject]@{
+        Name = 'Local noise tuning: Windows Time sample-health value'
+        Conditions = @(
+            @('Image', 'is', 'C:\Windows\System32\svchost.exe'),
+            @('EventType', 'is', 'SetValue'),
+            @('TargetObject', 'is', 'HKLM\System\CurrentControlSet\Services\W32Time\Config\Status\LastGoodSampleInfo')
+        )
+    }
+)
 $browserRuleName = 'technique_id=T1176,technique_name=Browser Extensions'
 $browserPatterns = @(
     '\SOFTWARE\Policies\Microsoft\Edge',
@@ -71,27 +104,45 @@ function Test-ApprovedRegistryExclusion {
     $elements = @($RegistryExclusion.ChildNodes | Where-Object {
         $_.NodeType -eq [System.Xml.XmlNodeType]::Element
     })
-    if ($elements.Count -ne 1) {
+    if ($elements.Count -ne $approvedRegistryRuleDefinitions.Count) {
         return $false
     }
 
-    $rule = $elements[0]
-    if ($rule.LocalName -ne 'Rule' -or $rule.GetAttribute('name') -ne $approvedRuleName -or $rule.groupRelation -ne 'and') {
-        return $false
-    }
+    foreach ($definition in $approvedRegistryRuleDefinitions) {
+        $targetDefinition = @($definition.Conditions | Where-Object {
+            $_[0] -eq 'TargetObject'
+        })[0]
+        $matchingRules = @($elements | Where-Object {
+            $target = $_.SelectSingleNode('TargetObject')
+            $_.LocalName -eq 'Rule' -and
+            -not $_.HasAttribute('name') -and
+            $target -and
+            $target.GetAttribute('condition') -ceq $targetDefinition[1] -and
+            $target.InnerText -ceq $targetDefinition[2]
+        })
+        if ($matchingRules.Count -ne 1 -or $matchingRules[0].GetAttribute('groupRelation') -ne 'and') {
+            return $false
+        }
 
-    $conditions = @($rule.ChildNodes | Where-Object {
-        $_.NodeType -eq [System.Xml.XmlNodeType]::Element
-    })
-    if ($conditions.Count -ne 3) {
-        return $false
-    }
+        $conditions = @($matchingRules[0].ChildNodes | Where-Object {
+            $_.NodeType -eq [System.Xml.XmlNodeType]::Element
+        })
+        if ($conditions.Count -ne $definition.Conditions.Count) {
+            return $false
+        }
 
-    return (
-        $rule.SelectNodes("Image[@condition='is' and text()='C:\Program Files\Windows Defender Advanced Threat Protection\MsSense.exe']").Count -eq 1 -and
-        $rule.SelectNodes("EventType[@condition='is' and text()='CreateKey']").Count -eq 1 -and
-        $rule.SelectNodes("TargetObject[@condition='begin with' and text()='HKLM\System\CurrentControlSet\Services\']").Count -eq 1
-    )
+        foreach ($conditionDefinition in $definition.Conditions) {
+            $matches = @($conditions | Where-Object {
+                $_.LocalName -ceq $conditionDefinition[0] -and
+                $_.GetAttribute('condition') -ceq $conditionDefinition[1] -and
+                $_.InnerText -ceq $conditionDefinition[2]
+            })
+            if ($matches.Count -ne 1) {
+                return $false
+            }
+        }
+    }
+    return $true
 }
 
 function Test-BrowserRegistryRules {
@@ -152,7 +203,9 @@ if ($approvedExclusionValid -and $browserRulesValid -and $firefoxFileRulesValid)
     return [pscustomobject]@{
         Configuration = $resolvedConfig
         RemovedExclusionGroups = 0
-        ApprovedNoiseTuningRule = $approvedRuleName
+        ApprovedNoiseTuningRule = $approvedRegistryRuleDefinitions[0].Name
+        ApprovedNoiseTuningRules = @($approvedRegistryRuleDefinitions.Name)
+        RegistryNoiseTuningRules = $approvedRegistryRuleDefinitions.Count
         BrowserRegistryRules = $browserPatterns.Count
         FirefoxFileCreateRules = $firefoxFileRuleDefinitions.Count
         Status = 'AlreadyProtected'
@@ -213,22 +266,19 @@ if (-not $approvedExclusionValid) {
     $ruleGroup.SetAttribute('groupRelation', 'or')
     $registryExclusion = $configuration.CreateElement('RegistryEvent')
     $registryExclusion.SetAttribute('onmatch', 'exclude')
-    $rule = $configuration.CreateElement('Rule')
-    $rule.SetAttribute('name', $approvedRuleName)
-    $rule.SetAttribute('groupRelation', 'and')
 
-    foreach ($conditionDefinition in @(
-        @('Image', 'is', 'C:\Program Files\Windows Defender Advanced Threat Protection\MsSense.exe'),
-        @('EventType', 'is', 'CreateKey'),
-        @('TargetObject', 'begin with', 'HKLM\System\CurrentControlSet\Services\')
-    )) {
-        $condition = $configuration.CreateElement($conditionDefinition[0])
-        $condition.SetAttribute('condition', $conditionDefinition[1])
-        $condition.InnerText = $conditionDefinition[2]
-        $null = $rule.AppendChild($condition)
+    foreach ($definition in $approvedRegistryRuleDefinitions) {
+        $rule = $configuration.CreateElement('Rule')
+        $rule.SetAttribute('groupRelation', 'and')
+        foreach ($conditionDefinition in $definition.Conditions) {
+            $condition = $configuration.CreateElement($conditionDefinition[0])
+            $condition.SetAttribute('condition', $conditionDefinition[1])
+            $condition.InnerText = $conditionDefinition[2]
+            $null = $rule.AppendChild($condition)
+        }
+        $null = $registryExclusion.AppendChild($rule)
     }
 
-    $null = $registryExclusion.AppendChild($rule)
     $null = $ruleGroup.AppendChild($registryExclusion)
     $null = $eventFiltering.AppendChild($ruleGroup)
 }
@@ -255,7 +305,9 @@ try {
 [pscustomobject]@{
     Configuration = $resolvedConfig
     RemovedExclusionGroups = if ($approvedExclusionValid) { 0 } else { $registryExclusions.Count }
-    ApprovedNoiseTuningRule = $approvedRuleName
+    ApprovedNoiseTuningRule = $approvedRegistryRuleDefinitions[0].Name
+    ApprovedNoiseTuningRules = @($approvedRegistryRuleDefinitions.Name)
+    RegistryNoiseTuningRules = $approvedRegistryRuleDefinitions.Count
     BrowserRegistryRules = $browserPatterns.Count
     FirefoxFileCreateRules = $firefoxFileRuleDefinitions.Count
     Status = 'Protected'
