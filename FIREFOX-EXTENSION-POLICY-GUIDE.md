@@ -249,36 +249,156 @@ user_pref("extensions.logging.enabled", true);
 
 The preference is intentionally profile-scoped. Remove that line from `user.js` after troubleshooting if continuous Add-on Manager debug output is not desired.
 
-### Automated UTC capture
+## 🧰 Step-by-step: save Firefox logging to a file
 
-Close every Firefox process, open Windows PowerShell, move to the repository, and run:
+A normal Start-menu launch does not preserve Firefox Add-on Manager diagnostics because standard error is not redirected. For a capture, let `Capture-FirefoxExtensionTelemetry.ps1` start Firefox. The script saves the Firefox log, records the UTC capture window, snapshots extension state, and exports matching Sysmon events after Firefox exits.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1
-```
+### 1. 🪪 Record the approved extension details
 
-The script validates the Firefox executable, selected profile, and logging preference; records the UTC start time; opens the Grammarly AMO listing in Firefox; redirects Firefox standard output and standard error to a debug log; and waits while you install the extension. Complete the Firefox permission prompt, verify the extension, and then close every Firefox window to end the capture.
+Have both the Firefox add-on ID and its AMO page URL ready. Add the ID to the allowed policy before starting. Grammarly is already the script default; another extension must be supplied with `-AddonId` and `-AddonUrl`.
 
-Grammarly's URL and add-on ID are the defaults. For another approved extension, provide both values so metadata and event filtering identify the correct add-on:
+Replace `REAL-ADDON-ID` and `REAL-AMO-SLUG` in the examples below. Do not enter those placeholders literally.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1 `
-    -AddonId 'approved-addon-id@example.com' `
-    -AddonUrl 'https://addons.mozilla.org/en-US/firefox/addon/approved-addon-slug/'
-```
+### 2. 🛑 Close Firefox completely
 
-To include a newly exported XDR CSV in the same evidence bundle:
+Close every Firefox window, then verify that no Firefox process remains:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1 `
-    -XdrCsvPath C:\Path\To\xdr_results.csv
+Get-Process firefox -ErrorAction SilentlyContinue
 ```
 
-Use `-ValidateOnly` to check prerequisites without launching Firefox or creating output:
+No output means Firefox is stopped. If a process is listed, close Firefox normally before continuing so profile state is flushed cleanly.
+
+### 3. 📂 Open the repository in Windows PowerShell
+
+Use Windows PowerShell 5.1 and move to the repository:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1 -ValidateOnly
+Set-Location C:\Users\Lorenzo\gh_repos\win11-sysmon
 ```
+
+### 4. ✅ Validate capture prerequisites
+
+For Grammarly, use the defaults:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+    -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1 `
+    -ValidateOnly
+```
+
+For another approved extension, validate with its real ID and AMO URL:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+    -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1 `
+    -ValidateOnly `
+    -AddonId 'REAL-ADDON-ID' `
+    -AddonUrl 'https://addons.mozilla.org/en-US/firefox/addon/REAL-AMO-SLUG/'
+```
+
+Continue only when the result contains:
+
+```text
+AddonLoggingEnabled : True
+Status              : Ready
+```
+
+### 5. ▶️ Start the capture
+
+For Grammarly, run:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+    -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1
+```
+
+For another approved extension, run:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+    -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1 `
+    -AddonId 'REAL-ADDON-ID' `
+    -AddonUrl 'https://addons.mozilla.org/en-US/firefox/addon/REAL-AMO-SLUG/'
+```
+
+The script creates `output\firefox-extension-capture-<UTC timestamp>\`, prints the exact debug-log path, snapshots current extension/policy state, records the UTC start time, and opens the supplied AMO page in Firefox. Keep this PowerShell window open; it waits for Firefox to exit.
+
+If an XDR CSV covering the same activity already exists, include a copy at capture start:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+    -File .\scripts\Capture-FirefoxExtensionTelemetry.ps1 `
+    -AddonId 'REAL-ADDON-ID' `
+    -AddonUrl 'https://addons.mozilla.org/en-US/firefox/addon/REAL-AMO-SLUG/' `
+    -XdrCsvPath 'C:\Path\To\xdr_results.csv'
+```
+
+### 6. 🧪 Install and exercise the extension
+
+1. Select **Add to Firefox** on the AMO page.
+2. Accept the Firefox permission prompt.
+3. Confirm that the extension appears installed and enabled.
+4. Leave Firefox idle for one or two minutes.
+5. Perform one controlled, repeatable extension action on a neutral page.
+6. Leave Firefox idle again for several minutes.
+
+A five-to-ten-minute controlled window is usually more useful than leaving the browser running indefinitely because it limits unrelated browser noise.
+
+### 7. 👀 Watch the Firefox log live (optional)
+
+Open a second PowerShell window in the repository and run:
+
+```powershell
+$latest = Get-ChildItem .\output\firefox-extension-capture-* -Directory |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+
+Get-Content `
+    -LiteralPath (Join-Path $latest.FullName 'firefox_addon_manager_debug.log') `
+    -Wait
+```
+
+Press `Ctrl+C` in the second window to stop watching. This does not stop Firefox or the capture running in the first window.
+
+### 8. ⏹️ Stop and finalize the capture
+
+Close every Firefox window normally. When Firefox exits, the first PowerShell window records the UTC end time, takes the after-install extension snapshot, exports the scoped Sysmon records, and returns `Status: Captured`.
+
+Verify Firefox is no longer running if the first window does not return:
+
+```powershell
+Get-Process firefox -ErrorAction SilentlyContinue
+```
+
+### 9. 🔎 Inspect the completed evidence
+
+Find the newest capture and review its metadata, Firefox log, extension snapshot, and flattened UTC Sysmon events:
+
+```powershell
+$latest = Get-ChildItem .\output\firefox-extension-capture-* -Directory |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+
+Get-Content (Join-Path $latest.FullName 'capture_metadata.json')
+Get-Content (Join-Path $latest.FullName 'firefox_addon_manager_debug.log')
+
+Import-Csv (Join-Path $latest.FullName 'firefox_extensions_after.csv') |
+    Format-Table
+
+Import-Csv (Join-Path $latest.FullName 'sysmon_firefox_events_UTC.csv') |
+    Format-Table TimeCreatedUtc, EventId, Image, TargetFilename, TargetObject
+```
+
+If the XDR export is created after the capture, copy it into the completed evidence directory:
+
+```powershell
+Copy-Item `
+    -LiteralPath 'C:\Path\To\xdr_results.csv' `
+    -Destination (Join-Path $latest.FullName 'xdr_results.csv')
+```
+
+### 10. 📦 Capture contents
 
 Each run creates an ignored timestamped directory below `output\` containing:
 
@@ -304,7 +424,8 @@ Use `CaptureStartUtc` and `CaptureEndUtc` from `capture_metadata.json` as the sh
 - XPI URLs, temporary XPI paths, and the installed profile XPI path.
 - `extensions.json` changes.
 - Sysmon RuleName `technique_id=T1176,technique_name=Browser Extensions` for registry policy activity.
-- Sysmon Event IDs 3, 11-15, 22, 23, and 26 for network, file, registry, DNS, and deletion evidence.
+- Sysmon Event IDs 3, 11-15, 23, and 26 for network, file, registry, and deletion evidence.
+- DNS Client Operational Event 3008 for Windows-resolver query name, requester PID, status, and answer correlation; Sysmon Event ID 22 is disabled in this profile.
 - XDR event timestamps normalized to UTC.
 
 Treat the Firefox log, Sysmon records, and XDR export as independent evidence sources. A Firefox install-complete message is application telemetry; the profile XPI and `extensions.json` writes are file artifacts; and the policy registry event shows configuration state rather than proving that the add-on installed successfully.
