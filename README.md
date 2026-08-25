@@ -22,8 +22,24 @@ This project enables high-fidelity Sysmon telemetry that complements Microsoft D
 | [`scripts/Set-FirefoxPolicyAudit.ps1`](scripts/Set-FirefoxPolicyAudit.ps1) | Enables Registry auditing and protects native/WOW6432Node Firefox policy roots with persistent SACLs. |
 | [`scripts/Set-ProcessCreationAudit.ps1`](scripts/Set-ProcessCreationAudit.ps1) | Enables Advanced Audit Policy Process Creation and GPO-backed command-line inclusion. |
 | [`scripts/Test-Telemetry.ps1`](scripts/Test-Telemetry.ps1) | Validates process command lines, audit precedence, Firefox SACLs, and a live marker-bearing Security 4688. |
+| [`FIREFOX-EXTENSION-POLICY-GUIDE.md`](FIREFOX-EXTENSION-POLICY-GUIDE.md) | Documents the Firefox default-deny policy, approved-ID exceptions, manual deployment, verification, capture, and rollback. |
 | [`CHANGELOG.md`](CHANGELOG.md) | Chronological record of telemetry and tuning changes. |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Attribution and license notice for the upstream configuration. |
+
+## Firefox correlation report
+
+The latest locally generated Firefox product is `output\firefox_grammarly_five_source_correlated_timeline_UTC.html`. Generated reports remain ignored by Git.
+
+The current report uses this unified UTC window:
+
+| Milestone | UTC |
+| --- | --- |
+| Report date | `2026-08-25` |
+| Manual Firefox policy activity | `09:22:16.868–09:23:22.312` |
+| Firefox capture | `09:24:22.312–09:25:12.772` |
+| Report envelope | `09:22:16.868–09:25:12.772` |
+
+All timeline rows, summaries, source cards, and report queries use UTC. The product correlates Security 4657/4688, DNS Client Operational, Sysmon, Defender XDR `DeviceFileEvents`, and Firefox capture artifacts. Its policy prelude uses the live manual Registry Editor chain from Security and Sysmon: process creation, temporary value creation, `ExtensionSettings` creation, and the final Grammarly policy write. XDR process telemetry and the intermediate delete operation are intentionally excluded from that timeline.
 
 ## ✅ Prerequisites
 
@@ -98,14 +114,14 @@ sysmon -c C:\Sysmon\win11-sysmon-mde-augment.xml
 
 ## 🔎 Browser extension registry coverage
 
-Sysmon Registry Events **12, 13, and 14** cover key/value creation, modification, deletion, and rename activity. Twelve case-insensitive `contains` patterns cover managed policy trees for Microsoft Edge, Google Chrome, and Mozilla Firefox; native external-registration trees for Edge and Chrome; and defensive direct-registration coverage for Firefox. The patterns match each watched root and all descendant keys and values under HKLM or any HKU user SID; separate patterns cover WOW6432Node views.
+Sysmon Registry Events **12, 13, and 14** cover registry key lifecycle, value set/delete, and object rename activity. A newly created value is recorded as Event 13 `SetValue`, the same event type used for later modifications. Twelve case-insensitive `contains` patterns cover managed policy trees for Microsoft Edge, Google Chrome, and Mozilla Firefox; native external-registration trees for Edge and Chrome; and defensive direct-registration coverage for Firefox. The patterns match each watched root and all descendant keys and values under HKLM or any HKU user SID; separate patterns cover WOW6432Node views.
 
 | Activity | Sysmon event | Captured for watched trees |
 | --- | --- | --- |
-| Key or value create | 12 | Yes |
-| Key or value delete | 12 | Yes |
-| Value modify/set | 13 | Yes |
-| Key or value rename | 14 | Yes |
+| Key create or delete | 12 | Yes |
+| Value delete | 12 | Yes |
+| Value create or modify (`SetValue`) | 13 | Yes |
+| Registry object rename | 14 | Yes |
 
 ### Watched policy roots
 
@@ -136,12 +152,40 @@ Equivalent `HKU\<SID>\SOFTWARE\...` policy paths are covered for per-user settin
 | Chrome | 32-bit | `HKLM\SOFTWARE\WOW6432Node\Policies\Google\Chrome\ExtensionInstallAllowlist` |
 | Chrome | 32-bit | `HKLM\SOFTWARE\WOW6432Node\Policies\Google\Chrome\ExtensionInstallBlocklist` |
 | Chrome | 32-bit | `HKLM\SOFTWARE\WOW6432Node\Policies\Google\Chrome\ExtensionInstallForcelist` |
-| Firefox | Native | `HKLM\SOFTWARE\Policies\Mozilla\Firefox\ExtensionSettings` |
-| Firefox | Native | `HKLM\SOFTWARE\Policies\Mozilla\Firefox\Extensions\Install` |
-| Firefox | Native | `HKLM\SOFTWARE\Policies\Mozilla\Firefox\Extensions\Uninstall` |
-| Firefox | Native | `HKLM\SOFTWARE\Policies\Mozilla\Firefox\Extensions\Locked` |
+| Firefox | Native | `HKLM\SOFTWARE\Policies\Mozilla\Firefox\ExtensionSettings` (`REG_MULTI_SZ` value) |
+| Firefox | Defensive 32-bit | `HKLM\SOFTWARE\WOW6432Node\Policies\Mozilla\Firefox\ExtensionSettings` (`REG_MULTI_SZ` mirror) |
 
-Mozilla documents the native Firefox policy root. The WOW6432Node Firefox pattern is defensive visibility for redirected, misplaced, or suspicious writes; it is not the recommended policy location.
+Mozilla documents the native Firefox policy root. `ExtensionSettings` is the Firefox extension-management value used by this project; its single JSON element defines the wildcard default and any extension-specific exceptions. Nested `Extensions` policy subkeys are not treated as supported Firefox settings. The WOW6432Node Firefox pattern is defensive visibility for redirected, misplaced, or suspicious writes; it is not the recommended policy location.
+
+### `ExtensionSettings.json` example
+
+The following compact JSON is the validated example used for the Grammarly policy:
+
+```json
+{"*":{"installation_mode":"blocked","blocked_install_message":"Only approved extensions may be installed."},"87677a2c52b84ad3a151a4a72f5bd3c4@jetpack":{"installation_mode":"allowed"}}
+```
+
+| JSON entry | Effect |
+| --- | --- |
+| `"*"` | Applies a default rule to every extension without a more specific add-on-ID entry. |
+| `"installation_mode":"blocked"` | Blocks installation of unapproved extensions and causes Firefox to remove an already-installed user extension that has no explicit exception. Firefox-managed system add-ons are handled separately. |
+| `"blocked_install_message"` | Shows the administrator-supplied explanation when Firefox blocks an installation. |
+| `"87677a2c52b84ad3a151a4a72f5bd3c4@jetpack"` | Matches Grammarly by its exact Firefox add-on ID. |
+| `"installation_mode":"allowed"` | Permits the user to install Grammarly normally from Mozilla Add-ons. It does not install, force-enable, or lock the extension. |
+
+An `ExtensionSettings.json` file is useful as a readable example, review artifact, backup, or deployment input. Firefox does **not** automatically read a standalone file with that name as the Windows enterprise policy. For this deployment, store the policy at the native Firefox location and mirror the same value under WOW6432Node for defensive 32-bit visibility:
+
+```text
+Native key:          HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox
+Defensive WOW key:  HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Policies\Mozilla\Firefox
+Value:               ExtensionSettings
+Type:                REG_MULTI_SZ
+Data:                the complete JSON above as one string element
+```
+
+The native key is Mozilla's supported policy location. The WOW6432Node key is this project's defensive mirror for redirected, misplaced, or suspicious 32-bit writes; keep its `ExtensionSettings` value identical to the native value rather than treating it as a separate policy. To apply the configuration manually, fully exit Firefox, back up and review any existing Firefox policy, create or edit `ExtensionSettings` at both roots, and paste the compact JSON as one line. Merge required approved IDs into the same JSON object instead of overwriting an existing policy blindly. Fully restart Firefox; Windows sign-out is not required.
+
+Verify the result at `about:policies`: the **Active** view must show `ExtensionSettings`, the wildcard entry must be `blocked`, the Grammarly ID must be `allowed`, and the **Errors** view must be empty. Then confirm an unlisted extension is blocked and Grammarly remains available for user installation. See the [complete Firefox extension policy guide](FIREFOX-EXTENSION-POLICY-GUIDE.md) and Mozilla's [ExtensionSettings reference](https://firefox-admin-docs.mozilla.org/reference/policies/extensionsettings/) for additional installation modes, backup, capture, troubleshooting, and rollback guidance.
 
 ### Watched native external-registration roots
 
@@ -156,7 +200,7 @@ Mozilla documents the native Firefox policy root. The WOW6432Node Firefox patter
 
 Each Chromium extension ID appears as a child key under these native roots. Chrome commonly stores `update_url` or `update_URL` in that child key. The root-fragment rules capture the root itself, every extension-ID subkey, and settings below each ID, including the screenshot pattern `HKLM\SOFTWARE\Google\Chrome\Extensions\<extension-id>\update_URL`.
 
-Mozilla recommends `ExtensionSettings` enterprise policy for current Firefox deployments. The two non-policy Firefox `Extensions` roots are monitored defensively to surface direct, legacy, nonstandard, or suspicious registration attempts even when those keys do not already exist. Creating, changing, renaming, or deleting a watched root, descendant key, or value generates Sysmon registry telemetry regardless of the writing process.
+Firefox extension management in this project uses only the supported `ExtensionSettings` policy value. The two non-policy Firefox `Extensions` roots are unrelated to that policy and are monitored only to surface direct, legacy, nonstandard, or suspicious registration attempts, even when those keys do not already exist. Creating, changing, renaming, or deleting a watched root, descendant key, or value generates Sysmon registry telemetry regardless of the writing process.
 
 The XML maps these additions to MITRE ATT&CK **T1176: Browser Extensions**. Values beneath the watched policy roots contain extension identifiers, install URLs, or policy JSON, so changes are useful for detecting unauthorized allowlisting, blocking, or silent force-installation.
 
@@ -166,13 +210,15 @@ The four exclusion rules intentionally omit XML `name` attributes. Live testing 
 
 ### Firefox policy change detection
 
-Firefox policy changes are deliberately covered by three independent endpoint sources:
+Firefox policy changes can be covered by three independent endpoint sources:
 
 | Source | Primary evidence |
 | --- | --- |
 | Security | Event 4657 records the policy value name plus old/new JSON; Event 4688 records the modifying process. |
 | Sysmon | Event 1 records the full writer command line; Events 12–14 identify policy key/value lifecycle under RuleName T1176. |
-| Defender XDR | `DeviceProcessEvents` records `reg.exe` PID/parent, complete command line, integrity, token elevation, signature, and hashes. |
+| Defender XDR | `DeviceProcessEvents` can provide registry-writer lineage, command line, integrity, token elevation, signature, and hashes when a qualifying process event is retained. It does not expose the policy JSON written by a GUI Registry Editor session. |
+
+The current correlation report attributes the hand-entered policy change with Security and Sysmon only. Security records `regedit.exe` process creation and the actual `REG_MULTI_SZ` JSON; Sysmon independently records the same process and T1176 `SetValue` operations. No XDR process row is used for that manual policy prelude.
 
 `Set-FirefoxPolicyAudit.ps1` enables the Security **Registry** audit subcategory for success and failure and applies one explicit, inheritable `Everyone` audit rule to each root:
 
@@ -188,7 +234,8 @@ Query Defender XDR process telemetry for policy writers:
 ```kusto
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
-| where DeviceName contains "win11-wsl2" and FileName contains "reg.exe"
+| where DeviceName contains "win11-wsl2"
+| where FileName in~ ("reg.exe", "regedit.exe")
 | project TimeGenerated, ReportId, DeviceName, FileName,
           ProcessId, ProcessCommandLine, ProcessIntegrityLevel,
           ProcessTokenElevation, SHA256, InitiatingProcessId,
@@ -196,11 +243,11 @@ DeviceProcessEvents
 | order by TimeGenerated asc
 ```
 
-For Firefox installation correlation, use `DeviceProcessEvents` for the policy writer and browser process lineage, and `DeviceFileEvents` for temporary XPI creation, staging, final rename, package hashes, and profile artifacts.
+For Firefox installation correlation, use Security and Sysmon for manual policy provenance. Use `DeviceProcessEvents` for writer or browser lineage only when a qualifying process event exists, and use `DeviceFileEvents` for temporary XPI creation, staging, final rename, package hashes, and profile artifacts.
 
 ### Security process command lines
 
-Security Event 4688 command-line capture is enforced because process creation alone identifies `reg.exe` but does not reveal which key or value it changed. Deployment configures all three required controls:
+Security Event 4688 command-line capture is enforced to preserve registry-writer launch context and distinguish command-line operations. It does not prove which value a GUI `regedit.exe` session changed; correlate it with Security Event 4657 and Sysmon Events 12–14 for the actual registry operation. Deployment configures all three required controls:
 
 | Control | Enforced state |
 | --- | --- |
@@ -261,7 +308,7 @@ Get-WinEvent -FilterHashtable @{
   LogName = 'Security'
   Id = 4657, 4688
   StartTime = (Get-Date).AddMinutes(-15)
-} | Where-Object Message -Match 'Mozilla\\Firefox|reg\.exe'
+} | Where-Object Message -Match 'Mozilla\\Firefox|reg(edit)?\.exe'
 ```
 
 Run the deployed-state test after policy or audit changes:
@@ -355,7 +402,6 @@ This project is inspired by and derived from [Olaf Hartong's sysmon-modular proj
 - [Chrome Enterprise extension policies](https://chromeenterprise.google/policies/#ExtensionInstallAllowlist)
 - [Chrome alternative installation methods: Windows registry](https://developer.chrome.com/docs/extensions/how-to/distribute/install-extensions#registry)
 - [Firefox administrator reference: ExtensionSettings](https://firefox-admin-docs.mozilla.org/reference/policies/extensionsettings/)
-- [Firefox administrator reference: Extensions](https://firefox-admin-docs.mozilla.org/reference/policies/extensions/)
 
 The upstream XML was retrieved on **2026-08-24** with SHA-256 `B0BAFCEC2BE753772E36E4BF891336DF558A4CEC53DD8C9BC716613B92F98943`, then extended with the documented managed/native browser registry rules and replacement of the competing `RegistryEvent` exclusion group. Review the [third-party notice](THIRD-PARTY-NOTICES.md) before redistribution.
 

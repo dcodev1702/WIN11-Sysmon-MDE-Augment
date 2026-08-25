@@ -91,6 +91,13 @@ HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox
 6. Select **Edit > New > Multi-String Value**.
 7. Name the value `ExtensionSettings`.
 8. Confirm its type is `REG_MULTI_SZ`.
+9. Mirror the same `ExtensionSettings` value and JSON under the project's defensive 32-bit path:
+
+```text
+HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Policies\Mozilla\Firefox
+```
+
+The native path remains Mozilla's supported policy location. The WOW6432Node path provides defensive visibility for redirected, misplaced, or suspicious 32-bit writes and must contain the same value, type, and JSON rather than a separate policy.
 
 ## Step 4: Block every extension by default
 
@@ -111,6 +118,18 @@ For one approved extension:
 ```json
 {"*":{"installation_mode":"blocked","blocked_install_message":"Only approved extensions may be installed."},"APPROVED_ADDON_ID":{"installation_mode":"allowed"}}
 ```
+
+### Concrete example: Grammarly allowed
+
+This `ExtensionSettings.json` example blocks unlisted user extensions while allowing the Grammarly Firefox add-on ID:
+
+```json
+{"*":{"installation_mode":"blocked","blocked_install_message":"Only approved extensions may be installed."},"87677a2c52b84ad3a151a4a72f5bd3c4@jetpack":{"installation_mode":"allowed"}}
+```
+
+The wildcard `"*"` entry establishes default-deny behavior and supplies the message shown for blocked installation attempts. The exact Grammarly ID overrides that default with `allowed`, which permits normal user installation from Mozilla Add-ons. It does not automatically install, force-enable, or lock Grammarly. Firefox-managed system add-ons are handled separately from these user-extension rules.
+
+The filename `ExtensionSettings.json` is useful for a reviewable example, backup, or deployment input, but Firefox does not automatically read a standalone file with that name as the Windows enterprise policy. Registry Editor must store the complete compact JSON as one string element in the `REG_MULTI_SZ` value named `ExtensionSettings` under `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox`, then mirror the identical value under `HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Policies\Mozilla\Firefox` for this project's defensive 32-bit coverage. If an automation tool consumes the JSON file, that tool must validate the JSON and write the same value and type to both roots. After applying it, fully restart Firefox and verify the policy in the **Active** and **Errors** views at `about:policies`.
 
 For multiple approved extensions:
 
