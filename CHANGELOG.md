@@ -4,11 +4,24 @@ All notable project changes are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Replaced the Firefox capture launcher's `cmd.exe` redirection with structured `Start-Process` stdout/stderr capture after quoted paths containing spaces caused an immediate exit code 1 without creating the debug log.
+- Kept `-ValidateOnly` side-effect free while reporting the structured launcher selected for live capture.
+- Blocked live captures from elevated shells because Firefox de-elevation through Explorer detaches redirected logging; validation now reports elevation and readiness explicitly.
+- Removed bundled Sysmon CSV/CLIXML exports from the Firefox capture workflow; capture metadata now records the live Sysmon Operational source and UTC query bounds.
+- Clarified that Firefox must fully restart after an ExtensionSettings registry change, but Windows sign-out/sign-in is not required.
+- Persisted Security Registry success/failure SACLs on native and WOW6432Node Firefox policy roots while preserving existing DACLs; configured Sysmon T1176 telemetry remains independent.
+- Enabled Advanced Audit Policy Process Creation, advanced subcategory precedence, and GPO-backed command-line inclusion for Security Event 4688.
+
 ### Added
 
 - Added Mozilla Firefox extension telemetry for enterprise policy changes, defensive direct `Extensions` registry coverage, profile XPI writes, and `extensions.json` state changes.
 - Added `FIREFOX-EXTENSION-POLICY-GUIDE.md`, a standalone Registry Editor guide for blocking extensions by default, allowing explicit Firefox add-on IDs, user-driven installation from AMO web pages, policy testing, Sysmon verification, and revocation.
-- Added `scripts/Capture-FirefoxExtensionTelemetry.ps1` to capture Firefox Add-on Manager debug output, before/after extension state, UTC-scoped Sysmon events, policy state, and an optional XDR CSV in one evidence bundle; `-AddonId` and `-AddonUrl` support controlled captures of extensions other than the Grammarly defaults.
+- Added `scripts/Capture-FirefoxExtensionTelemetry.ps1` to capture Firefox Add-on Manager debug output, before/after extension state, policy state, authoritative Sysmon query bounds, and an optional XDR CSV in one evidence bundle; `-AddonId` and `-AddonUrl` support controlled captures of extensions other than the Grammarly defaults.
+- Added `scripts/Set-FirefoxPolicyAudit.ps1` to idempotently enable Security Registry auditing and enforce native/WOW6432Node Firefox policy SACLs.
+- Added `scripts/Set-ProcessCreationAudit.ps1` and `scripts/Test-Telemetry.ps1` to enforce and prove Security 4688 command-line capture and Firefox policy SACL health.
+- Added Defender XDR `DeviceProcessEvents` as a Firefox policy/process detection source alongside `DeviceFileEvents` package telemetry.
 - Documented the verified Grammarly XPI stable endpoint, version, size, SHA-256, manifest ID, and signature containers.
 
 ### Changed
@@ -35,6 +48,8 @@ All notable project changes are documented in this file.
 - Observed 53 unrelated retained `svchost.exe` registry events carrying a partially matched W32Time exclusion name, then removed exclusion `name` attributes to preserve downstream RuleName fidelity.
 - Post-load validation retained 176 events over 115.79 seconds (1.52 events/second) and 66 non-W32Time registry events while recording zero excluded W32Time tuples and zero Event ID 255 errors; after one queued interim-config event, the next 198 registry events had zero local-noise RuleName labels.
 - Verified DNS Client correlation with a unique PowerShell NXDOMAIN lookup and an isolated Edge lookup. Edge's DNS event PID `13636` joined to Sysmon ProcessCreate Record `208373` and ProcessGuid `{825293f1-a8f9-6a8c-d245-000000002600}`; `MsSense.exe` generated 23 follow-up completions for the same unique name, while Sysmon retained zero Event ID 22 records.
+- Verified Security Event 4688 Record `2246882` contains a unique process-command-line audit marker after policy application.
+- Verified native Security 4657 / Sysmon 13 Records `2246577` / `227060` and WOW6432Node Records `2246580` / `227065` fired for controlled Firefox policy writes; temporary values were removed.
 
 ### Browser registry signal structure
 

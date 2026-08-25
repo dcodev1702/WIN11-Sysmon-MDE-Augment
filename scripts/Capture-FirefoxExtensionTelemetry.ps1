@@ -39,6 +39,12 @@ $installsIni = Join-Path -Path $firefoxRoot -ChildPath 'installs.ini'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $sysmonLogName = 'Microsoft-Windows-Sysmon/Operational'
 
+function Test-IsAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
 function Resolve-DefaultFirefoxProfile {
     if (-not (Test-Path -LiteralPath $installsIni)) {
         throw "Firefox installs.ini was not found: $installsIni"
@@ -71,6 +77,23 @@ function Test-FirefoxAddonLoggingEnabled {
         }
     }
     return $false
+}
+
+function Start-FirefoxRedirected {
+    param(
+        [string] $ResolvedFirefoxPath,
+        [string[]] $Arguments,
+        [string] $StandardOutputPath,
+        [string] $StandardErrorPath
+    )
+
+    Start-Process `
+        -FilePath $ResolvedFirefoxPath `
+        -ArgumentList $Arguments `
+        -RedirectStandardOutput $StandardOutputPath `
+        -RedirectStandardError $StandardErrorPath `
+        -Wait `
+        -PassThru
 }
 
 function Get-OptionalPropertyValue {
@@ -157,39 +180,6 @@ function Get-FirefoxPolicySnapshot {
     }
 }
 
-function Convert-SysmonEvent {
-    param([System.Diagnostics.Eventing.Reader.EventRecord] $Event)
-
-    $xml = [xml]$Event.ToXml()
-    $eventData = @{}
-    foreach ($node in $xml.Event.EventData.Data) {
-        $eventData[[string]$node.Name] = [string]$node.'#text'
-    }
-
-    [pscustomobject]@{
-        TimeCreatedUtc = $Event.TimeCreated.ToUniversalTime().ToString('o')
-        RecordId = $Event.RecordId
-        EventId = $Event.Id
-        RuleName = $eventData.RuleName
-        UtcTime = $eventData.UtcTime
-        ProcessGuid = $eventData.ProcessGuid
-        ProcessId = $eventData.ProcessId
-        Image = $eventData.Image
-        User = $eventData.User
-        EventType = $eventData.EventType
-        TargetFilename = $eventData.TargetFilename
-        TargetObject = $eventData.TargetObject
-        Details = $eventData.Details
-        DestinationHostname = $eventData.DestinationHostname
-        DestinationIp = $eventData.DestinationIp
-        DestinationPort = $eventData.DestinationPort
-        QueryName = $eventData.QueryName
-        Hashes = $eventData.Hashes
-        Contents = $eventData.Contents
-        RawXml = $Event.ToXml()
-    }
-}
-
 if (-not (Test-Path -LiteralPath $FirefoxPath -PathType Leaf)) {
     throw "Firefox executable was not found: $FirefoxPath"
 }
@@ -213,6 +203,7 @@ if ($XdrCsvPath) {
     $XdrCsvPath = (Resolve-Path -LiteralPath $XdrCsvPath).ProviderPath
 }
 
+$isAdministrator = Test-IsAdministrator
 if ($ValidateOnly) {
     return [pscustomobject]@{
         Firefox = $FirefoxPath
@@ -220,9 +211,15 @@ if ($ValidateOnly) {
         AddonId = $AddonId
         AddonUrl = $AddonUrl
         AddonLoggingEnabled = $true
+        Launcher = 'Start-Process'
+        ShellElevated = $isAdministrator
         XdrCsv = $XdrCsvPath
-        Status = 'Ready'
+        Status = if ($isAdministrator) { 'Blocked' } else { 'Ready' }
     }
+}
+
+if ($isAdministrator) {
+    throw 'Run this capture from a non-administrator Windows PowerShell window. Firefox de-elevates administrator launches and detaches redirected logging.'
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
@@ -232,11 +229,10 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 
 $outputPath = [System.IO.Directory]::CreateDirectory($OutputDirectory).FullName
 $debugLogPath = Join-Path -Path $outputPath -ChildPath 'firefox_addon_manager_debug.log'
+$standardOutputPath = Join-Path -Path $outputPath -ChildPath 'firefox_stdout.log'
 $beforeSnapshotPath = Join-Path -Path $outputPath -ChildPath 'firefox_extensions_before.csv'
 $afterSnapshotPath = Join-Path -Path $outputPath -ChildPath 'firefox_extensions_after.csv'
 $policyPath = Join-Path -Path $outputPath -ChildPath 'firefox_extension_policy.json'
-$sysmonCsvPath = Join-Path -Path $outputPath -ChildPath 'sysmon_firefox_events_UTC.csv'
-$sysmonXmlPath = Join-Path -Path $outputPath -ChildPath 'sysmon_firefox_events_raw.clixml'
 $metadataPath = Join-Path -Path $outputPath -ChildPath 'capture_metadata.json'
 
 Get-FirefoxExtensionSnapshot -ResolvedProfilePath $ProfilePath |
@@ -256,16 +252,20 @@ Write-Host "Capture start (UTC): $($startUtc.ToString('o'))"
 Write-Host "Firefox debug log: $debugLogPath"
 Write-Host 'Install the approved extension, complete the Firefox prompt, then close every Firefox window.'
 
-$escapedFirefox = $FirefoxPath.Replace('"', '""')
-$escapedProfile = $ProfilePath.Replace('"', '""')
-$escapedUrl = $AddonUrl.Replace('"', '""')
-$escapedLog = $debugLogPath.Replace('"', '""')
-$commandLine = '""{0}" -no-remote -profile "{1}" "{2}" > "{3}" 2>&1"' -f `
-    $escapedFirefox, $escapedProfile, $escapedUrl, $escapedLog
+$firefoxArguments = @(
+    '-no-remote',
+    '-profile',
+    ('"{0}"' -f $ProfilePath),
+    ('"{0}"' -f $AddonUrl)
+)
 
 try {
-    & $env:ComSpec /d /s /c $commandLine
-    $firefoxExitCode = $LASTEXITCODE
+    $firefoxProcess = Start-FirefoxRedirected `
+        -ResolvedFirefoxPath $FirefoxPath `
+        -Arguments $firefoxArguments `
+        -StandardOutputPath $standardOutputPath `
+        -StandardErrorPath $debugLogPath
+    $firefoxExitCode = $firefoxProcess.ExitCode
 } finally {
     [Environment]::SetEnvironmentVariable('MOZ_LOG', $previousMozLog, 'Process')
 }
@@ -273,35 +273,6 @@ try {
 $endUtc = [DateTime]::UtcNow
 Get-FirefoxExtensionSnapshot -ResolvedProfilePath $ProfilePath |
     Export-Csv -LiteralPath $afterSnapshotPath -NoTypeInformation -Encoding UTF8
-
-$eventIds = 1, 3, 7, 10, 11, 12, 13, 14, 15, 22, 23, 26, 255
-$events = @(Get-WinEvent -FilterHashtable @{
-    LogName = $sysmonLogName
-    Id = $eventIds
-    StartTime = $startUtc
-    EndTime = $endUtc
-} -ErrorAction SilentlyContinue)
-
-$convertedEvents = @($events | ForEach-Object { Convert-SysmonEvent -Event $_ })
-$addonIdPattern = [regex]::Escape($AddonId)
-$firefoxEventPattern = '(?i)firefox|mozilla|{0}|\.xpi|extensions\.json' -f $addonIdPattern
-$firefoxEvents = @($convertedEvents | Where-Object {
-    $searchable = @(
-        $_.Image,
-        $_.TargetFilename,
-        $_.TargetObject,
-        $_.Details,
-        $_.DestinationHostname,
-        $_.QueryName,
-        $_.Contents
-    ) -join '|'
-
-    $searchable -match $firefoxEventPattern
-})
-
-$firefoxEvents | Select-Object -Property * -ExcludeProperty RawXml |
-    Export-Csv -LiteralPath $sysmonCsvPath -NoTypeInformation -Encoding UTF8
-$events | Export-Clixml -LiteralPath $sysmonXmlPath -Depth 5
 
 $metadata = [ordered]@{
     CaptureStartUtc = $startUtc.ToString('o')
@@ -315,16 +286,22 @@ $metadata = [ordered]@{
     AddonUrl = $AddonUrl
     AddonLoggingPreference = 'extensions.logging.enabled=true'
     DebugLog = $debugLogPath
-    SysmonCsv = $sysmonCsvPath
-    SysmonRaw = $sysmonXmlPath
-    SysmonMatchingEvents = $firefoxEvents.Count
-    SysmonErrors255 = @($convertedEvents | Where-Object EventId -eq 255).Count
+    StandardOutputLog = $standardOutputPath
+    SysmonSourceLog = $sysmonLogName
+    SysmonQueryStartUtc = $startUtc.ToString('o')
+    SysmonQueryEndUtc = $endUtc.ToString('o')
     XdrCsv = if ($XdrCsvPath) { Join-Path -Path $outputPath -ChildPath 'xdr_results.csv' } else { $null }
 }
 $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $metadataPath -Encoding UTF8
 
 if ($firefoxExitCode -ne 0) {
-    throw "Firefox exited with code $firefoxExitCode. Review $debugLogPath."
+    $diagnosticPaths = @($debugLogPath, $standardOutputPath) | Where-Object {
+        Test-Path -LiteralPath $_
+    }
+    if ($diagnosticPaths.Count -gt 0) {
+        throw "Firefox exited with code $firefoxExitCode. Review $($diagnosticPaths -join ', ')."
+    }
+    throw "Firefox exited with code $firefoxExitCode before redirected log files were created."
 }
 
 [pscustomobject]@{
@@ -333,8 +310,8 @@ if ($firefoxExitCode -ne 0) {
     CaptureEndUtc = $endUtc
     FirefoxExitCode = $firefoxExitCode
     DebugLog = $debugLogPath
-    SysmonEvents = $firefoxEvents.Count
-    SysmonErrors255 = $metadata.SysmonErrors255
+    StandardOutputLog = $standardOutputPath
+    SysmonSourceLog = $sysmonLogName
     XdrCsvIncluded = [bool]$XdrCsvPath
     Status = 'Captured'
 }

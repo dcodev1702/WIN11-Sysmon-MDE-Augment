@@ -140,6 +140,26 @@ When editing the JSON:
 
 If Firefox reports an error, stop before testing installation. Correct the registry value and restart Firefox.
 
+Windows sign-out/sign-in is not required for a registry policy change. Firefox must fully exit and restart so it reads the updated enterprise policy. If a sign-out appeared necessary during testing, it likely terminated a Firefox background process that remained alive after the visible windows closed. Verify that no process remains before restarting:
+
+```powershell
+Get-Process firefox -ErrorAction SilentlyContinue
+```
+
+No output means Firefox is fully stopped. Start Firefox again and confirm the new value in `about:policies` before attempting installation.
+
+Sysmon Events 12–14 for the monitored Firefox policy path do not require a registry SACL. Windows Security Event 4657 is different: it appears only when the **Registry** audit subcategory is enabled and the policy key has a matching audit entry. `scripts\Set-FirefoxPolicyAudit.ps1` persistently configures success/failure auditing for writes and security changes on both `HKLM\SOFTWARE\Policies\Mozilla\Firefox` and its defensive WOW6432Node equivalent.
+
+Security Event 4688 identifies the policy-writing process. `scripts\Set-ProcessCreationAudit.ps1` enables Advanced Audit Policy Process Creation, forces subcategory precedence, enables GPO-backed command-line inclusion, and applies computer policy. This is critical because a 4688 with an empty command line proves only that `reg.exe` started; with command-line auditing enabled, it also records the policy path, value name, data type, and JSON argument. Validate both controls after deployment:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Telemetry.ps1
+```
+
+Correlate Security 4657/4688, Sysmon T1176 records, Defender XDR `DeviceProcessEvents`, and the effective value in `about:policies`. Process command lines can contain sensitive arguments, so restrict Security log access and avoid command-line secrets.
+
+Domain or OU Group Policy can override local audit settings. The deployment and test scripts verify effective state after policy application and fail if command-line auditing or the required audit controls are not active.
+
 ## Step 7: Install an approved extension from the web
 
 1. In Firefox, open the saved AMO listing URL for an approved extension.
@@ -168,8 +188,9 @@ This test validates the default `"*"` block. An approved website origin alone mu
 3. Open the existing `ExtensionSettings` value in Registry Editor.
 4. Add a new ID-level property with `"installation_mode":"allowed"`.
 5. Preserve the `"*"` blocked entry and all existing approved IDs.
-6. Restart Firefox and verify the policy in `about:policies`.
-7. Visit the new extension's AMO listing and select **Add to Firefox**.
+6. Fully restart Firefox; Windows sign-out is not required.
+7. Verify the policy in `about:policies`.
+8. Visit the new extension's AMO listing and select **Add to Firefox**.
 
 ## Revoke an extension
 
@@ -251,7 +272,7 @@ The preference is intentionally profile-scoped. Remove that line from `user.js` 
 
 ## 🧰 Step-by-step: save Firefox logging to a file
 
-A normal Start-menu launch does not preserve Firefox Add-on Manager diagnostics because standard error is not redirected. For a capture, let `Capture-FirefoxExtensionTelemetry.ps1` start Firefox. The script saves the Firefox log, records the UTC capture window, snapshots extension state, and exports matching Sysmon events after Firefox exits.
+A normal Start-menu launch does not preserve Firefox Add-on Manager diagnostics because standard error is not redirected. For a capture, let `Capture-FirefoxExtensionTelemetry.ps1` start Firefox. The script saves the Firefox log, records the UTC capture window, and snapshots extension state. Query Sysmon directly from `Microsoft-Windows-Sysmon/Operational` using the recorded UTC bounds.
 
 ### 1. 🪪 Record the approved extension details
 
@@ -271,7 +292,7 @@ No output means Firefox is stopped. If a process is listed, close Firefox normal
 
 ### 3. 📂 Open the repository in Windows PowerShell
 
-Use Windows PowerShell 5.1 and move to the repository:
+Open a normal, **non-administrator** Windows PowerShell 5.1 window and move to the repository. Do not run the capture from an elevated terminal: Firefox de-elevates administrator launches through Explorer, which detaches the redirected logging streams.
 
 ```powershell
 Set-Location C:\Users\Lorenzo\gh_repos\win11-sysmon
@@ -301,8 +322,11 @@ Continue only when the result contains:
 
 ```text
 AddonLoggingEnabled : True
+ShellElevated       : False
 Status              : Ready
 ```
+
+If validation reports `ShellElevated: True` and `Status: Blocked`, close that terminal and repeat the command in a normal non-administrator Windows PowerShell window.
 
 ### 5. ▶️ Start the capture
 
@@ -363,7 +387,7 @@ Press `Ctrl+C` in the second window to stop watching. This does not stop Firefox
 
 ### 8. ⏹️ Stop and finalize the capture
 
-Close every Firefox window normally. When Firefox exits, the first PowerShell window records the UTC end time, takes the after-install extension snapshot, exports the scoped Sysmon records, and returns `Status: Captured`.
+Close every Firefox window normally. When Firefox exits, the first PowerShell window records the UTC end time, takes the after-install extension snapshot, and returns `Status: Captured`.
 
 Verify Firefox is no longer running if the first window does not return:
 
@@ -373,7 +397,7 @@ Get-Process firefox -ErrorAction SilentlyContinue
 
 ### 9. 🔎 Inspect the completed evidence
 
-Find the newest capture and review its metadata, Firefox log, extension snapshot, and flattened UTC Sysmon events:
+Find the newest capture and review its metadata, Firefox log, and extension snapshot:
 
 ```powershell
 $latest = Get-ChildItem .\output\firefox-extension-capture-* -Directory |
@@ -385,9 +409,19 @@ Get-Content (Join-Path $latest.FullName 'firefox_addon_manager_debug.log')
 
 Import-Csv (Join-Path $latest.FullName 'firefox_extensions_after.csv') |
     Format-Table
+```
 
-Import-Csv (Join-Path $latest.FullName 'sysmon_firefox_events_UTC.csv') |
-    Format-Table TimeCreatedUtc, EventId, Image, TargetFilename, TargetObject
+Use `CaptureStartUtc` and `CaptureEndUtc` from `capture_metadata.json` to query Sysmon from its authoritative source:
+
+```powershell
+$metadata = Get-Content (Join-Path $latest.FullName 'capture_metadata.json') -Raw |
+    ConvertFrom-Json
+
+Get-WinEvent -FilterHashtable @{
+    LogName = $metadata.SysmonSourceLog
+    StartTime = [datetime]$metadata.SysmonQueryStartUtc
+    EndTime = [datetime]$metadata.SysmonQueryEndUtc
+} | Sort-Object TimeCreated
 ```
 
 If the XDR export is created after the capture, copy it into the completed evidence directory:
@@ -404,20 +438,19 @@ Each run creates an ignored timestamped directory below `output\` containing:
 
 | Artifact | Purpose |
 | --- | --- |
-| `firefox_addon_manager_debug.log` | Firefox Add-on Manager/XPI debug output captured from standard output and error. |
-| `capture_metadata.json` | UTC window, Firefox/profile details, exit code, artifact paths, and event counts. |
+| `firefox_addon_manager_debug.log` | Firefox Add-on Manager/XPI debug output captured from standard error. |
+| `firefox_stdout.log` | Separate Firefox standard-output capture for launch diagnostics. |
+| `capture_metadata.json` | UTC window, Firefox/profile details, exit code, artifact paths, and authoritative Sysmon source/query bounds. |
 | `firefox_extension_policy.json` | Read-only snapshot of the effective `ExtensionSettings` registry value. |
 | `firefox_extensions_before.csv` | Extension state immediately before launch. |
 | `firefox_extensions_after.csv` | Extension state after Firefox exits. |
-| `sysmon_firefox_events_UTC.csv` | Flattened Firefox-related Sysmon events for timeline analysis. |
-| `sysmon_firefox_events_raw.clixml` | Raw exported Sysmon event objects for reprocessing. |
 | `xdr_results.csv` | Optional copy of the XDR export supplied with `-XdrCsvPath`. |
 
-The debug log is redirected through `cmd.exe` rather than relying only on `MOZ_LOG_FILE`, because Mozilla documents that sandboxed child processes may not be able to write directly to that file. The script also sets process-scoped `MOZ_LOG=timestamp,sync` and restores the caller's previous value after Firefox exits.
+The script launches Firefox with structured `Start-Process` redirection instead of shell command-line quoting. Standard error and standard output use separate files because `Start-Process` requires distinct redirection targets. The script also sets process-scoped `MOZ_LOG=timestamp,sync` and restores the caller's previous value after Firefox exits.
 
 ### Correlate the capture
 
-Use `CaptureStartUtc` and `CaptureEndUtc` from `capture_metadata.json` as the shared time boundary. Correlate on:
+Use `CaptureStartUtc` and `CaptureEndUtc` from `capture_metadata.json` as the shared time boundary. Pull Sysmon records directly from `Microsoft-Windows-Sysmon/Operational`; do not use copied or previously bundled Sysmon exports. Correlate on:
 
 - Firefox process IDs and process GUIDs.
 - Add-on ID `87677a2c52b84ad3a151a4a72f5bd3c4@jetpack`.
@@ -426,9 +459,24 @@ Use `CaptureStartUtc` and `CaptureEndUtc` from `capture_metadata.json` as the sh
 - Sysmon RuleName `technique_id=T1176,technique_name=Browser Extensions` for registry policy activity.
 - Sysmon Event IDs 3, 11-15, 23, and 26 for network, file, registry, and deletion evidence.
 - DNS Client Operational Event 3008 for Windows-resolver query name, requester PID, status, and answer correlation; Sysmon Event ID 22 is disabled in this profile.
+- Defender XDR `DeviceProcessEvents` for policy-writer and browser process command lines, PID/parent lineage, integrity, elevation, signature, and hashes.
+- Defender XDR `DeviceFileEvents` for temporary XPI creation, staging, final rename, package hash continuity, and profile artifacts.
 - XDR event timestamps normalized to UTC.
 
-Treat the Firefox log, Sysmon records, and XDR export as independent evidence sources. A Firefox install-complete message is application telemetry; the profile XPI and `extensions.json` writes are file artifacts; and the policy registry event shows configuration state rather than proving that the add-on installed successfully.
+Use this Defender XDR process query for Firefox policy edits:
+
+```kusto
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where DeviceName contains "win11-wsl2" and FileName contains "reg.exe"
+| project TimeGenerated, ReportId, DeviceName, FileName,
+          ProcessId, ProcessCommandLine, ProcessIntegrityLevel,
+          ProcessTokenElevation, SHA256, InitiatingProcessId,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by TimeGenerated asc
+```
+
+Treat the Firefox log, Security, Sysmon, DNS Client, and both XDR tables as independent evidence sources. A Firefox install-complete message is application telemetry; profile XPI and `extensions.json` writes are file artifacts; and policy registry/process events show configuration state rather than proving that the add-on installed successfully.
 
 ## Verify Sysmon telemetry
 

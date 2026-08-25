@@ -16,9 +16,12 @@ This project enables high-fidelity Sysmon telemetry that complements Microsoft D
 | File | Purpose |
 | --- | --- |
 | [`win11-sysmon-mde-augment.xml`](win11-sysmon-mde-augment.xml) | Olaf's MDE augment configuration plus browser extension registry and Firefox profile-artifact monitoring. |
-| [`scripts/Enable-Sysmon.ps1`](scripts/Enable-Sysmon.ps1) | Validates and deploys Sysmon, then ensures DNS Client Operational is enabled at 2 GiB. |
+| [`scripts/Enable-Sysmon.ps1`](scripts/Enable-Sysmon.ps1) | Deploys Sysmon, enforces DNS Client Operational, and applies Firefox policy SACLs. |
 | [`scripts/Test-Configuration.ps1`](scripts/Test-Configuration.ps1) | Verifies XML parsing, browser telemetry boundaries, noise tuning, and the Sysmon DNS-off invariant. |
 | [`scripts/Protect-BrowserRegistryTelemetry.ps1`](scripts/Protect-BrowserRegistryTelemetry.ps1) | Reconstructs local browser/noise rules and the DNS-off invariant after an upstream refresh. |
+| [`scripts/Set-FirefoxPolicyAudit.ps1`](scripts/Set-FirefoxPolicyAudit.ps1) | Enables Registry auditing and protects native/WOW6432Node Firefox policy roots with persistent SACLs. |
+| [`scripts/Set-ProcessCreationAudit.ps1`](scripts/Set-ProcessCreationAudit.ps1) | Enables Advanced Audit Policy Process Creation and GPO-backed command-line inclusion. |
+| [`scripts/Test-Telemetry.ps1`](scripts/Test-Telemetry.ps1) | Validates process command lines, audit precedence, Firefox SACLs, and a live marker-bearing Security 4688. |
 | [`CHANGELOG.md`](CHANGELOG.md) | Chronological record of telemetry and tuning changes. |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Attribution and license notice for the upstream configuration. |
 
@@ -45,6 +48,7 @@ Open Windows PowerShell as Administrator, move to this repository, and run:
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Configuration.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Enable-Sysmon.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Telemetry.ps1
 ```
 
 The `-ExecutionPolicy Bypass` setting applies only to the new PowerShell process used for that command; it does not change the machine or user execution-policy setting. Both scripts require Windows PowerShell 5.1 (`powershell.exe`) because the inbox DISM feature cmdlets can fail under PowerShell 7 (`pwsh.exe`) on some Windows builds.
@@ -58,6 +62,8 @@ The installer:
 5. Confirms the service and `Microsoft-Windows-Sysmon/Operational` event log exist.
 6. Sets the Sysmon Operational channel maximum size to **4 GiB** and reports the effective size.
 7. Tests whether `Microsoft-Windows-DNS-Client/Operational` is enabled at exactly **2 GiB**; if either condition is false, it enables the channel, sets the size, and verifies both conditions again.
+8. Enables Security Registry success/failure auditing and verifies persistent, inheritable Firefox policy SACLs on native and WOW6432Node roots.
+9. Enables Advanced Audit Policy Process Creation success/failure auditing, advanced subcategory precedence, and command-line inclusion in Security Event 4688.
 
 If Windows reports that a restart is required, restart the device and run the script again. Preview the planned action without changing Windows with:
 
@@ -78,6 +84,8 @@ Copy-Item .\win11-sysmon-mde-augment.xml C:\Sysmon\win11-sysmon-mde-augment.xml
 sysmon -i C:\Sysmon\win11-sysmon-mde-augment.xml
 wevtutil sl Microsoft-Windows-Sysmon/Operational /ms:4294967296
 wevtutil sl Microsoft-Windows-DNS-Client/Operational /e:true /ms:2147483648
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Set-FirefoxPolicyAudit.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Set-ProcessCreationAudit.ps1
 ```
 
 Restart Windows after enabling the optional feature if requested, then continue with `sysmon -i`. Configuration changes take effect immediately and do not otherwise require a restart.
@@ -156,6 +164,63 @@ Because Sysmon exclusion rules take precedence over include rules, this configur
 
 The four exclusion rules intentionally omit XML `name` attributes. Live testing showed that Sysmon can stamp the name of a partially matched exclusion rule onto an unrelated event that remains included. Comments and validator metadata retain readable labels without corrupting the `RuleName` field used by downstream detections.
 
+### Firefox policy change detection
+
+Firefox policy changes are deliberately covered by three independent endpoint sources:
+
+| Source | Primary evidence |
+| --- | --- |
+| Security | Event 4657 records the policy value name plus old/new JSON; Event 4688 records the modifying process. |
+| Sysmon | Event 1 records the full writer command line; Events 12–14 identify policy key/value lifecycle under RuleName T1176. |
+| Defender XDR | `DeviceProcessEvents` records `reg.exe` PID/parent, complete command line, integrity, token elevation, signature, and hashes. |
+
+`Set-FirefoxPolicyAudit.ps1` enables the Security **Registry** audit subcategory for success and failure and applies one explicit, inheritable `Everyone` audit rule to each root:
+
+```text
+HKLM\SOFTWARE\Policies\Mozilla\Firefox
+HKLM\SOFTWARE\WOW6432Node\Policies\Mozilla\Firefox
+```
+
+The SACL audits successful and failed `SetValue`, `CreateSubKey`, `Delete`, permission-change, and ownership-change operations on each root and its descendants. Existing DACLs are verified unchanged. The native path is Mozilla's supported policy location; WOW6432Node remains defensive monitoring for redirected, misplaced, or suspicious writes.
+
+Query Defender XDR process telemetry for policy writers:
+
+```kusto
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where DeviceName contains "win11-wsl2" and FileName contains "reg.exe"
+| project TimeGenerated, ReportId, DeviceName, FileName,
+          ProcessId, ProcessCommandLine, ProcessIntegrityLevel,
+          ProcessTokenElevation, SHA256, InitiatingProcessId,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by TimeGenerated asc
+```
+
+For Firefox installation correlation, use `DeviceProcessEvents` for the policy writer and browser process lineage, and `DeviceFileEvents` for temporary XPI creation, staging, final rename, package hashes, and profile artifacts.
+
+### Security process command lines
+
+Security Event 4688 command-line capture is enforced because process creation alone identifies `reg.exe` but does not reveal which key or value it changed. Deployment configures all three required controls:
+
+| Control | Enforced state |
+| --- | --- |
+| Advanced Audit Policy → Detailed Tracking → Process Creation | Success and Failure |
+| Include command line in process creation events | Enabled (`ProcessCreationIncludeCmdLine_Enabled=1`) |
+| Force audit policy subcategory settings | Enabled (`SCENoApplyLegacyAuditPolicy=1`) |
+
+The command-line setting is represented by this GPO-backed registry value:
+
+```text
+HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit
+  ProcessCreationIncludeCmdLine_Enabled = 1 (REG_DWORD)
+```
+
+`Set-ProcessCreationAudit.ps1` applies the settings and runs `gpupdate /target:computer /force` when remediation is required. `Test-Telemetry.ps1` launches a harmless uniquely marked `cmd.exe` process and fails unless the resulting Security Event 4688 contains the marker in its `CommandLine` field. It also validates both Firefox policy SACLs and Security Registry auditing.
+
+Domain or OU Group Policy takes precedence over local configuration. If enterprise policy disables or replaces these controls, the scripts verify the post-`gpupdate` state and fail rather than report protection incorrectly. Configure the equivalent domain GPO for managed fleets.
+
+Process command lines can contain sensitive arguments. Restrict Security log access and forwarding destinations, apply appropriate retention/access controls, and avoid placing secrets directly on command lines.
+
 ### Firefox profile artifacts
 
 Sysmon Event ID **11** adds two Firefox-specific artifact signals under `%APPDATA%\Mozilla\Firefox\Profiles`:
@@ -191,6 +256,18 @@ Get-Service sysmon*
 
 Get-WinEvent -LogName 'Microsoft-Windows-Sysmon/Operational' -MaxEvents 20 |
     Select-Object TimeCreated, Id, ProviderName, Message
+
+Get-WinEvent -FilterHashtable @{
+  LogName = 'Security'
+  Id = 4657, 4688
+  StartTime = (Get-Date).AddMinutes(-15)
+} | Where-Object Message -Match 'Mozilla\\Firefox|reg\.exe'
+```
+
+Run the deployed-state test after policy or audit changes:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Telemetry.ps1
 ```
 
 In Event Viewer, use:

@@ -118,6 +118,26 @@ if (-not (Test-DnsClientOperationalLog -EventLog $dnsClientEventLog)) {
     throw 'The DNS Client Operational log is not enabled at the required 2 GiB maximum size.'
 }
 
+$firefoxPolicyAuditScript = Join-Path -Path $PSScriptRoot -ChildPath 'Set-FirefoxPolicyAudit.ps1'
+$firefoxPolicyAudit = & $firefoxPolicyAuditScript
+if (
+    $firefoxPolicyAudit.Status -ne 'Protected' -or
+    @($firefoxPolicyAudit.PolicyRoots).Count -ne 2 -or
+    @($firefoxPolicyAudit.PolicyRoots | Where-Object { -not $_.RuleVerified }).Count -ne 0
+) {
+    throw 'Firefox policy registry auditing was not verified for both registry views.'
+}
+
+$processCreationAuditScript = Join-Path -Path $PSScriptRoot -ChildPath 'Set-ProcessCreationAudit.ps1'
+$processCreationAudit = & $processCreationAuditScript
+if (
+    $processCreationAudit.Status -ne 'Protected' -or
+    $processCreationAudit.ProcessCreationIncludeCmdLineEnabled -ne 1 -or
+    $processCreationAudit.AdvancedAuditPolicyPrecedence -ne 1
+) {
+    throw 'Security process creation command-line auditing was not verified.'
+}
+
 $services = @(Get-Service -Name 'Sysmon*' -ErrorAction Stop)
 $eventLog = Get-WinEvent -ListLog 'Microsoft-Windows-Sysmon/Operational'
 
@@ -136,5 +156,12 @@ $eventLog = Get-WinEvent -ListLog 'Microsoft-Windows-Sysmon/Operational'
     DnsClientOperationalLogMaximumSizeBytes = $dnsClientEventLog.MaximumSizeInBytes
     DnsClientOperationalLogMaximumSizeGiB = [math]::Round($dnsClientEventLog.MaximumSizeInBytes / 1GB, 2)
     DnsClientOperationalLogRemediated = $dnsClientLogRemediated
+    FirefoxPolicyAuditStatus = $firefoxPolicyAudit.Status
+    FirefoxPolicyAuditRoots = @($firefoxPolicyAudit.PolicyRoots.Path)
+    FirefoxPolicyAuditPrincipal = $firefoxPolicyAudit.AuditPrincipal
+    FirefoxPolicyAuditRights = $firefoxPolicyAudit.AuditRights
+    ProcessCreationAuditStatus = $processCreationAudit.Status
+    ProcessCreationIncludeCmdLineEnabled = $processCreationAudit.ProcessCreationIncludeCmdLineEnabled
+    AdvancedAuditPolicyPrecedence = $processCreationAudit.AdvancedAuditPolicyPrecedence
     RestartNeeded = $false
 }
