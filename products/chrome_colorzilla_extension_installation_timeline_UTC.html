@@ -1,0 +1,1913 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      name="report-schema"
+      content="chrome-colorzilla-managed-installation-timeline/2.0"
+    />
+    <title>
+      ColorZilla Chrome Extension &mdash; Five-Source Correlated UTC Timeline
+    </title>
+    <style>
+      :root {
+        --bg: #05070b;
+        --panel: #0c111b;
+        --line: #243047;
+        --text: #edf6ff;
+        --muted: #92a5bc;
+        --cyan: #41e8ff;
+        --green: #62ff9c;
+        --violet: #b68cff;
+        --amber: #ffd166;
+        --red: #ff6b7b;
+        --blue: #66a3ff;
+        --shadow: 0 14px 38px rgba(0, 0, 0, 0.2);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background-color: var(--bg);
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+          linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.018) 1px,
+            transparent 1px
+          ),
+          linear-gradient(
+            180deg,
+            #07101a 0,
+            #05070b 34%,
+            #070a10 72%,
+            #05070b 100%
+          );
+        background-size:
+          32px 32px,
+          32px 32px,
+          100% 100%;
+        color: var(--text);
+        font:
+          15px/1.55 "Segoe UI Variable Text",
+          "Aptos",
+          sans-serif;
+        letter-spacing: 0;
+      }
+      .wrap {
+        width: min(1420px, 94vw);
+        margin: auto;
+        padding: 38px 0 80px;
+      }
+      .topbar,
+      .brand,
+      .pills,
+      .event-title,
+      .source-stack,
+      .phase-head {
+        display: flex;
+        align-items: center;
+      }
+      .topbar {
+        justify-content: space-between;
+        gap: 20px;
+        margin-bottom: 28px;
+      }
+      .brand {
+        gap: 12px;
+      }
+      .dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 18px var(--green);
+      }
+      .eyebrow {
+        font-size: 12px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--cyan);
+        font-weight: 800;
+      }
+      h1 {
+        font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+        font-size: clamp(30px, 4.2vw, 58px);
+        line-height: 1.05;
+        margin: 8px 0 14px;
+        max-width: 1160px;
+      }
+      h2 {
+        font:
+          700 25px/1.2 "Bahnschrift",
+          "Segoe UI Variable Display",
+          sans-serif;
+        margin: 0;
+      }
+      h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+      .lede {
+        max-width: 1130px;
+        color: #bac9da;
+        font-size: 17px;
+      }
+      .mono {
+        font-family:
+          ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+        overflow-wrap: anywhere;
+      }
+      .strong {
+        color: #fff;
+        font-weight: 760;
+      }
+      .pills {
+        flex-wrap: wrap;
+        gap: 9px;
+        margin: 20px 0 4px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        white-space: normal;
+        border: 1px solid #26354c;
+        background: #0b1320;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: 750;
+        color: #c9d8e8;
+      }
+      .pill.cyan {
+        color: var(--cyan);
+        border-color: #296b75;
+      }
+      .pill.green {
+        color: var(--green);
+        border-color: #286b43;
+      }
+      .pill.violet {
+        color: var(--violet);
+        border-color: #5b467e;
+      }
+      .pill.amber {
+        color: var(--amber);
+        border-color: #735f31;
+      }
+      .pill.red {
+        color: #ff9aa5;
+        border-color: #743840;
+      }
+      .pill.blue {
+        color: #9bc2ff;
+        border-color: #365780;
+      }
+      .hero {
+        border: 1px solid #1d2a3f;
+        border-radius: 8px;
+        padding: 28px 30px;
+        background: linear-gradient(
+          135deg,
+          rgba(14, 20, 32, 0.97),
+          rgba(7, 12, 20, 0.98)
+        );
+        box-shadow: var(--shadow);
+        position: relative;
+        overflow: hidden;
+      }
+      .hero:after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 3px;
+        background: linear-gradient(
+          90deg,
+          var(--blue),
+          var(--amber),
+          var(--violet),
+          var(--green),
+          var(--cyan)
+        );
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 16px;
+        margin-top: 18px;
+      }
+      .card,
+      .source-card {
+        border: 1px solid #1c293c;
+        background: linear-gradient(
+          180deg,
+          rgba(13, 19, 30, 0.96),
+          rgba(8, 13, 21, 0.97)
+        );
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16);
+      }
+      .kpi {
+        grid-column: span 3;
+      }
+      .kpi .n {
+        font:
+          800 28px/1.1 "Bahnschrift",
+          "Segoe UI Variable Display",
+          sans-serif;
+      }
+      .kpi .l {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-weight: 800;
+        margin-top: 4px;
+      }
+      .kpi .s {
+        font-size: 12px;
+        color: #b4c4d6;
+        margin-top: 7px;
+      }
+      .accent-cyan {
+        color: var(--cyan);
+      }
+      .accent-green {
+        color: var(--green);
+      }
+      .accent-violet {
+        color: var(--violet);
+      }
+      .accent-amber {
+        color: var(--amber);
+      }
+      .accent-blue {
+        color: #9bc2ff;
+      }
+      .accent-red {
+        color: #ff9aa5;
+      }
+      section {
+        margin-top: 46px;
+      }
+      .section-head {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 20px;
+        margin-bottom: 18px;
+      }
+      .section-head p {
+        margin: 0;
+        color: var(--muted);
+        max-width: 780px;
+        font-size: 13px;
+      }
+      .rule {
+        height: 1px;
+        background: linear-gradient(
+          90deg,
+          var(--cyan),
+          rgba(65, 232, 255, 0.06),
+          transparent
+        );
+        margin-top: 12px;
+      }
+      .two {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .three {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+      .four {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+      }
+      .five {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 14px;
+      }
+      .card p,
+      .source-card p {
+        margin: 0;
+        color: #a9bbce;
+        font-size: 13px;
+      }
+      .timeline {
+        position: relative;
+        margin: 22px 0 0;
+        padding-left: 31px;
+      }
+      .timeline:before {
+        content: "";
+        position: absolute;
+        left: 8px;
+        top: 10px;
+        bottom: 12px;
+        width: 3px;
+        border-radius: 999px;
+        background: linear-gradient(
+          var(--blue),
+          var(--amber) 26%,
+          var(--green) 54%,
+          var(--violet) 74%,
+          var(--cyan)
+        );
+        box-shadow: 0 0 18px rgba(65, 232, 255, 0.35);
+      }
+      .event {
+        position: relative;
+        display: grid;
+        grid-template-columns: 178px 190px minmax(0, 1fr);
+        gap: 16px;
+        margin: 0 0 18px;
+      }
+      .event:before {
+        content: "";
+        position: absolute;
+        left: -28px;
+        top: 20px;
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        background: #070b12;
+        border: 3px solid var(--cyan);
+        box-shadow:
+          0 0 0 5px rgba(65, 232, 255, 0.07),
+          0 0 18px rgba(65, 232, 255, 0.55);
+      }
+      .event.security:before {
+        border-color: var(--blue);
+        box-shadow:
+          0 0 0 5px rgba(102, 163, 255, 0.07),
+          0 0 18px rgba(102, 163, 255, 0.5);
+      }
+      .event.sysmon:before {
+        border-color: var(--amber);
+        box-shadow:
+          0 0 0 5px rgba(255, 209, 102, 0.07),
+          0 0 18px rgba(255, 209, 102, 0.48);
+      }
+      .event.browser:before {
+        border-color: var(--violet);
+        box-shadow:
+          0 0 0 5px rgba(182, 140, 255, 0.07),
+          0 0 18px rgba(182, 140, 255, 0.5);
+      }
+      .event.xdr:before {
+        border-color: var(--green);
+        box-shadow:
+          0 0 0 5px rgba(98, 255, 156, 0.07),
+          0 0 18px rgba(98, 255, 156, 0.45);
+      }
+      .timebox {
+        padding-top: 13px;
+      }
+      .time {
+        font:
+          800 14px/1.25 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        color: #d8e7f7;
+      }
+      .tz {
+        font-size: 10px;
+        color: var(--muted);
+        margin-top: 5px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+      .sourcebox {
+        padding-top: 9px;
+      }
+      .source-label {
+        font-size: 9px;
+        color: #71869c;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-weight: 800;
+        margin-bottom: 6px;
+      }
+      .source-stack {
+        flex-wrap: wrap;
+        gap: 5px;
+      }
+      .source-stack .pill {
+        font-size: 10px;
+        padding: 4px 7px;
+      }
+      .event-card {
+        border: 1px solid #1b2a3f;
+        border-radius: 8px;
+        padding: 16px 18px;
+        background: linear-gradient(
+          180deg,
+          rgba(13, 19, 30, 0.98),
+          rgba(8, 13, 21, 0.99)
+        );
+        box-shadow: 0 12px 34px rgba(0, 0, 0, 0.14);
+        min-width: 0;
+      }
+      .event-title {
+        flex-wrap: wrap;
+        gap: 8px;
+        font-weight: 820;
+      }
+      .event-desc {
+        color: #afc0d3;
+        margin-top: 7px;
+        font-size: 13px;
+      }
+      .event-fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px 16px;
+        margin-top: 12px;
+        padding-top: 11px;
+        border-top: 1px solid #182436;
+        font-size: 11px;
+        color: #8fa5bb;
+      }
+      .event-fields b {
+        color: #d8e7f7;
+      }
+      .policy-line {
+        border: 1px solid #1e3149;
+        background: #07101a;
+        border-radius: 6px;
+        padding: 11px 13px;
+        margin-top: 11px;
+        color: #d5e8fa;
+        font:
+          11px/1.55 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        overflow-wrap: anywhere;
+      }
+      .note {
+        border-left: 3px solid var(--amber);
+        background: rgba(255, 209, 102, 0.055);
+        padding: 14px 16px;
+        border-radius: 0 7px 7px 0;
+        color: #c9d4df;
+        font-size: 13px;
+      }
+      .note strong {
+        color: var(--amber);
+      }
+      .evidence-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 12px;
+        overflow: hidden;
+        border: 1px solid #1e2b3f;
+        border-radius: 8px;
+      }
+      .evidence-table th {
+        text-align: left;
+        background: #0d1522;
+        color: #9fb4ca;
+        padding: 11px;
+        border-bottom: 1px solid #1e2b3f;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        font-size: 10px;
+      }
+      .evidence-table td {
+        padding: 11px;
+        border-bottom: 1px solid #152033;
+        color: #d1dfed;
+        vertical-align: top;
+      }
+      .evidence-table tr:last-child td {
+        border-bottom: 0;
+      }
+      .yes {
+        color: var(--green);
+        font-weight: 850;
+      }
+      .partial {
+        color: var(--amber);
+        font-weight: 850;
+      }
+      .no {
+        color: #ff8c98;
+        font-weight: 850;
+      }
+      .signal-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 8px 0;
+        border-top: 1px solid #182436;
+        font-size: 12px;
+      }
+      .code-card {
+        border: 1px solid #223149;
+        border-radius: 8px;
+        background: #080d15;
+        overflow: hidden;
+      }
+      .code-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 11px 14px;
+        border-bottom: 1px solid #1b273a;
+        background: #0d1420;
+      }
+      .code-title {
+        font-size: 12px;
+        font-weight: 850;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: #c3d2e2;
+      }
+      .copy {
+        cursor: pointer;
+        border: 1px solid #2a3b55;
+        background: #101827;
+        color: #cfe0f2;
+        border-radius: 999px;
+        padding: 5px 9px;
+        font-size: 11px;
+      }
+      pre {
+        margin: 0;
+        padding: 17px 18px;
+        overflow: auto;
+        color: #dbe9f7;
+        font:
+          12.5px/1.62 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        white-space: pre-wrap;
+      }
+      .permission-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin-top: 12px;
+      }
+      .permission {
+        border: 1px solid #243650;
+        background: #0a1320;
+        padding: 6px 9px;
+        border-radius: 5px;
+        font:
+          11px/1.25 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        color: #d6e6f6;
+      }
+      .permission.required {
+        border-color: rgba(255, 209, 102, 0.42);
+        color: var(--amber);
+      }
+      .permission.absent {
+        border-color: rgba(98, 255, 156, 0.3);
+        color: #b4ffce;
+      }
+      .footer {
+        margin-top: 48px;
+        padding-top: 18px;
+        border-top: 1px solid #162235;
+        color: #71869c;
+        font-size: 11px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .phase {
+        --phase-rgb: 65, 232, 255;
+        position: relative;
+        display: grid;
+        grid-template-columns: 178px 190px minmax(0, 1fr);
+        gap: 16px;
+        margin: 42px 0 22px;
+      }
+      .phase:first-child {
+        margin-top: 4px;
+      }
+      .phase-copy {
+        grid-column: 1/-1;
+        border-top: 1px solid rgba(var(--phase-rgb), 0.22);
+        border-bottom: 1px solid rgba(var(--phase-rgb), 0.14);
+        border-left: 3px solid rgb(var(--phase-rgb));
+        padding: 13px 16px 14px;
+        background: linear-gradient(
+          90deg,
+          rgba(var(--phase-rgb), 0.105),
+          rgba(var(--phase-rgb), 0.025) 48%,
+          transparent 82%
+        );
+      }
+      .phase-access {
+        --phase-rgb: 98, 255, 156;
+      }
+      .phase-policy {
+        --phase-rgb: 102, 163, 255;
+      }
+      .phase-browser {
+        --phase-rgb: 255, 126, 139;
+      }
+      .phase-install {
+        --phase-rgb: 255, 209, 102;
+      }
+      .phase-kicker {
+        color: rgb(var(--phase-rgb));
+        font-size: 10px;
+        font-weight: 850;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      .phase-head {
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 18px;
+        margin-top: 3px;
+      }
+      .phase-title {
+        font:
+          750 19px/1.2 "Bahnschrift",
+          "Segoe UI Variable Display",
+          sans-serif;
+        color: #f2f7fd;
+      }
+      .phase-window {
+        flex: none;
+        color: #aebed0;
+        font:
+          11px/1.3 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+      }
+      .phase-desc {
+        max-width: 950px;
+        margin-top: 5px;
+        color: #9fb2c6;
+        font-size: 12.5px;
+      }
+      @media (max-width: 1180px) {
+        .five {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .event,
+        .phase {
+          grid-template-columns: 165px 150px minmax(0, 1fr);
+        }
+      }
+      @media (max-width: 980px) {
+        .kpi {
+          grid-column: span 6;
+        }
+        .two,
+        .three,
+        .four {
+          grid-template-columns: 1fr;
+        }
+        .event,
+        .phase {
+          grid-template-columns: 1fr;
+        }
+        .timebox,
+        .sourcebox {
+          padding-top: 0;
+        }
+        .event-fields {
+          grid-template-columns: 1fr;
+        }
+        .source-label {
+          display: none;
+        }
+      }
+      @media (max-width: 650px) {
+        .wrap {
+          width: 94vw;
+        }
+        .hero {
+          padding: 22px 18px;
+        }
+        .kpi {
+          grid-column: span 12;
+        }
+        .timeline {
+          padding-left: 27px;
+        }
+        .section-head,
+        .topbar,
+        .phase-head {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+        .five {
+          grid-template-columns: 1fr;
+        }
+        .policy-line {
+          font-size: 10.5px;
+        }
+        .evidence-table {
+          min-width: 740px;
+        }
+        .phase {
+          margin-top: 34px;
+        }
+        .phase-title {
+          font-size: 17px;
+        }
+      }
+      @media print {
+        body {
+          background: #fff;
+          color: #111;
+        }
+        .wrap {
+          width: 100%;
+          padding: 0;
+        }
+        .hero,
+        .card,
+        .event-card,
+        .code-card,
+        .source-card {
+          box-shadow: none;
+          background: #fff;
+          color: #111;
+          border-color: #bbb;
+        }
+        .pill,
+        .permission {
+          color: #111;
+          background: #fff;
+        }
+        .event-desc,
+        .section-head p,
+        .lede,
+        .source-card p {
+          color: #333;
+        }
+        pre,
+        .policy-line {
+          color: #111;
+          background: #fff;
+        }
+        .copy {
+          display: none;
+        }
+        .phase-copy {
+          background: #fff;
+        }
+        .phase-title {
+          color: #111;
+        }
+        .phase-desc,
+        .phase-window {
+          color: #333;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="topbar">
+        <div class="brand">
+          <span class="dot"></span
+          ><span class="eyebrow">Browser Extension Telemetry Lab</span>
+        </div>
+        <div class="pills">
+          <span class="pill blue">Security</span
+          ><span class="pill cyan">DNS Client</span
+          ><span class="pill amber">Sysmon</span
+          ><span class="pill green">Defender XDR</span
+          ><span class="pill violet">Chrome artifact</span
+          ><span class="pill">UTC normalized</span>
+        </div>
+      </div>
+      <header class="hero">
+        <div class="eyebrow">
+          Five-source correlated managed installation timeline
+        </div>
+        <h1>
+          Google Chrome extension installation &mdash;
+          <span class="accent-cyan">ColorZilla</span>
+        </h1>
+        <p class="lede">
+          A fresh, network-backed reconstruction of managed Chrome policy
+          authoring, browser execution, versioned CRX retrieval, internal
+          unpacking, profile registration, and extension-process activation.
+          Security, DNS Client, Sysmon, Defender XDR, and the installed Chrome
+          artifact are correlated while package and resolver limitations remain
+          explicit.
+        </p>
+        <div class="pills">
+          <span class="pill cyan"
+            >ID &middot; bhlhnicpbhignbdhedgjhgdocnmhomnp</span
+          ><span class="pill green">Version &middot; 4.1</span
+          ><span class="pill violet">Chrome &middot; 151.0.7922.174</span
+          ><span class="pill blue">Policy &middot; 23:32:20 UTC</span
+          ><span class="pill amber"
+            >Installation &middot; 23:34:48-23:34:55 UTC</span
+          ><span class="pill">Local date &middot; 2026-08-27</span
+          ><span class="pill"
+            >Device &middot; win11-wsl2.skynet-home.local</span
+          >
+        </div>
+      </header>
+      <div class="grid">
+        <div class="card kpi">
+          <div class="n accent-blue">5</div>
+          <div class="l">Evidence sources</div>
+          <div class="s">
+            Security, DNS Client, Sysmon, Defender XDR, and Chrome profile
+            state.
+          </div>
+        </div>
+        <div class="card kpi">
+          <div class="n accent-green">1.22 KB</div>
+          <div class="l">Verified manifest</div>
+          <div class="s">
+            1,235 bytes; name, version, permissions, path, and SHA-256
+            validated.
+          </div>
+        </div>
+        <div class="card kpi">
+          <div class="n accent-violet">784 ms</div>
+          <div class="l">CRX to manifest</div>
+          <div class="s">
+            XDR versioned package creation to installed-manifest creation time.
+          </div>
+        </div>
+        <div class="card kpi">
+          <div class="n accent-cyan">1.221 s</div>
+          <div class="l">CRX to active renderer</div>
+          <div class="s">
+            XDR package creation to the post-install extension renderer.
+          </div>
+        </div>
+      </div>
+
+      <section>
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">01 &middot; UTC timeline</div>
+            <h2>ColorZilla Managed Installation</h2>
+            <div class="rule"></div>
+          </div>
+          <p>
+            All timestamps are UTC on 2026-08-26; the host local date was
+            2026-08-27 (UTC+2). Every event has an explicit source column and a
+            bounded evidentiary claim.
+          </p>
+        </div>
+        <div class="timeline">
+          <div class="phase phase-access">
+            <div class="phase-copy">
+              <div class="phase-kicker">Phase 1 &middot; Privileged action</div>
+              <div class="phase-head">
+                <div class="phase-title">Privileged Policy Access</div>
+                <div class="phase-window">23:32:20.071-20.560Z</div>
+              </div>
+              <div class="phase-desc">
+                Four high-integrity registry processes create native and WOW
+                force-install directives and exact-ID allowlist exceptions.
+              </div>
+            </div>
+          </div>
+          <div class="event security">
+            <div class="timebox">
+              <div class="time">23:32:20.071-20.267</div>
+              <div class="tz">UTC &middot; force policy</div>
+            </div>
+            <div class="sourcebox">
+              <div class="source-label">Source</div>
+              <div class="source-stack">
+                <span class="pill blue">Security</span
+                ><span class="pill amber">Sysmon</span
+                ><span class="pill green">Defender XDR</span>
+              </div>
+            </div>
+            <div class="event-card">
+              <div class="event-title">
+                Administrator stages the managed Chrome installation
+                <span class="pill blue">Policy creation</span>
+              </div>
+              <div class="event-desc">
+                <span class="mono">reg.exe</span> writes the same ColorZilla
+                force-install value into the native and WOW policy views.
+              </div>
+              <div class="policy-line">
+                ExtensionInstallForcelist\1 =
+                bhlhnicpbhignbdhedgjhgdocnmhomnp;https://clients2.google.com/service/update2/crx
+              </div>
+              <div class="event-fields">
+                <span
+                  ><b>Security</b> &middot; 4688 / 2270538-2270539 / PIDs 11544,
+                  9820</span
+                ><span
+                  ><b>Sysmon</b> &middot; 12/13 / 458987-458988,
+                  458994-458995</span
+                ><span
+                  ><b>Defender XDR</b> &middot; DeviceRegistryEvents Report
+                  37495</span
+                ><span
+                  ><b>Integrity</b> &middot; High / TokenElevationTypeFull</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="phase phase-policy">
+            <div class="phase-copy">
+              <div class="phase-kicker">Phase 2 &middot; Policy authoring</div>
+              <div class="phase-head">
+                <div class="phase-title">
+                  Create/Modify Chrome ExtensionInstall Policies
+                </div>
+                <div class="phase-window">23:32:20.379-20.560Z</div>
+              </div>
+              <div class="phase-desc">
+                ColorZilla is explicitly allowed in both registry views while
+                the existing wildcard block remains in force.
+              </div>
+            </div>
+          </div>
+          <div class="event sysmon">
+            <div class="timebox">
+              <div class="time">23:32:20.379-20.560</div>
+              <div class="tz">UTC &middot; allowlist exception</div>
+            </div>
+            <div class="sourcebox">
+              <div class="source-label">Source</div>
+              <div class="source-stack">
+                <span class="pill blue">Security</span
+                ><span class="pill amber">Sysmon</span>
+              </div>
+            </div>
+            <div class="event-card">
+              <div class="event-title">
+                ColorZilla is allowed in both registry views
+                <span class="pill green">Approved ID</span>
+              </div>
+              <div class="event-desc">
+                Native and WOW allowlist value 5 are populated with the exact
+                extension ID.
+              </div>
+              <div class="policy-line">
+                ExtensionInstallAllowlist\5 = bhlhnicpbhignbdhedgjhgdocnmhomnp
+              </div>
+              <div class="event-fields">
+                <span
+                  ><b>Security</b> &middot; 4688 / 2270540-2270541 / PIDs 13968,
+                  9600</span
+                ><span><b>Sysmon native</b> &middot; 459001/459002</span
+                ><span><b>Sysmon WOW</b> &middot; 459008/459009</span
+                ><span><b>RuleName</b> &middot; T1176 Browser Extensions</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="phase phase-browser">
+            <div class="phase-copy">
+              <div class="phase-kicker">
+                Phase 3 &middot; Application execution
+              </div>
+              <div class="phase-head">
+                <div class="phase-title">
+                  Google Chrome Background Execution
+                </div>
+                <div class="phase-window">23:34:48.005-23:35:12.203Z</div>
+              </div>
+              <div class="phase-desc">
+                Chrome relaunches at medium integrity, starts its network
+                service, and produces bounded resolver and TLS context before
+                package retrieval.
+              </div>
+            </div>
+          </div>
+          <div class="event security">
+            <div class="timebox">
+              <div class="time">23:34:48.005-49.159</div>
+              <div class="tz">UTC &middot; browser lineage</div>
+            </div>
+            <div class="sourcebox">
+              <div class="source-label">Source</div>
+              <div class="source-stack">
+                <span class="pill blue">Security</span
+                ><span class="pill green">Defender XDR</span>
+              </div>
+            </div>
+            <div class="event-card">
+              <div class="event-title">
+                Chrome starts, de-elevates, and creates its network service
+                <span class="pill green">Process lineage</span>
+              </div>
+              <div class="event-desc">
+                The high-integrity launcher PID 12552 yields persistent
+                medium-integrity browser PID 16684 and network-service PID
+                14256.
+              </div>
+              <div class="event-fields">
+                <span><b>Security</b> &middot; 4688 / 2270577 and 2270582</span
+                ><span
+                  ><b>Defender XDR</b> &middot; Reports 37572, 37575,
+                  37583</span
+                ><span
+                  ><b>Root command</b> &middot;
+                  <span class="mono">--start-minimized about:blank</span></span
+                ><span
+                  ><b>Network role</b> &middot;
+                  <span class="mono">network.mojom.NetworkService</span></span
+                >
+              </div>
+            </div>
+          </div>
+          <div class="event">
+            <div class="timebox">
+              <div class="time">23:34:49.481-23:35:12.203</div>
+              <div class="tz">UTC &middot; resolver context</div>
+            </div>
+            <div class="sourcebox">
+              <div class="source-label">Source</div>
+              <div class="source-stack">
+                <span class="pill cyan">DNS Client</span>
+              </div>
+            </div>
+            <div class="event-card">
+              <div class="event-title">
+                Native DNS captures Chrome-process WPAD context
+                <span class="pill cyan">PID attributed</span>
+              </div>
+              <div class="event-desc">
+                Two successful A-query rows resolve WPAD to the local gateway.
+                No native row names Google update services, the Chrome Web
+                Store, ColorZilla, or its extension ID; package delivery is not
+                attributed from DNS Client alone.
+              </div>
+              <div class="event-fields">
+                <span
+                  ><b>Record 3026877</b> &middot; wpad.fritz.box / PID 14256 /
+                  192.168.10.1</span
+                ><span
+                  ><b>Record 3046789</b> &middot; wpad / PID 17960 /
+                  192.168.10.1</span
+                ><span><b>Events</b> &middot; 3020 and 3018 / Status 0</span
+                ><span
+                  ><b>Boundary</b> &middot; 0 extension/store-specific native
+                  DNS rows</span
+                >
+              </div>
+            </div>
+          </div>
+          <div class="event xdr">
+            <div class="timebox">
+              <div class="time">23:34:49.560-51.685</div>
+              <div class="tz">UTC &middot; delivery-window TLS</div>
+            </div>
+            <div class="sourcebox">
+              <div class="source-label">Source</div>
+              <div class="source-stack">
+                <span class="pill green">Defender XDR</span>
+              </div>
+            </div>
+            <div class="event-card">
+              <div class="event-title">
+                Chrome network service establishes delivery-window TLS
+                <span class="pill green">Context only</span>
+              </div>
+              <div class="event-desc">
+                PID 14256 connects over TCP/443 to Google-hosted IP space and
+                one additional IP before the CRX appears. The retained rows have
+                empty <span class="mono">RemoteUrl</span>, so individual
+                connections are not labeled as ColorZilla delivery.
+              </div>
+              <div class="event-fields">
+                <span
+                  ><b>XDR reports</b> &middot; 37594, 37597, 37613, 37615,
+                  37617</span
+                ><span
+                  ><b>Google IPs</b> &middot; 142.251.13.113; 142.251.110.139;
+                  172.217.116.4</span
+                ><span
+                  ><b>Additional Google IPs</b> &middot; 142.251.153.119;
+                  142.251.14.132</span
+                ><span
+                  ><b>Boundary</b> &middot; delivery-window correlation, not URL
+                  attribution</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="phase phase-install">
+            <div class="phase-copy">
+              <div class="phase-kicker">
+                Phase 4 &middot; Delivery and activation
+              </div>
+              <div class="phase-head">
+                <div class="phase-title">
+                  Chrome Extension Acquisition, Installation &amp; Activation
+                </div>
+                <div class="phase-window">23:34:53.553-23:34:54.774Z</div>
+              </div>
+              <div class="phase-desc">
+                Chrome creates the versioned ColorZilla CRX, invokes its
+                isolated unzipper, stages recognizable package files, writes the
+                installed manifest, and starts a new extension renderer.
+              </div>
+            </div>
+          </div>
+          <div class="event xdr">
+            <div class="timebox">
+              <div class="time">23:34:53.553</div>
+              <div class="tz">UTC &middot; package acquisition</div>
+            </div>
+            <div class="sourcebox">
+              <div class="source-label">Source</div>
+              <div class="source-stack">
+                <span class="pill green">Defender XDR</span>
+              </div>
+            </div>
+            <div class="event-card">
+              <div class="event-title">
+                Versioned ColorZilla CRX enters Chrome's URL-fetcher path
+                <span class="pill green">FileCreated</span>
+              </div>
+              <div class="event-desc">
+                Defender XDR records browser PID 16684 creating a package whose
+                filename encodes the exact extension ID and version 4.1.0.0.
+              </div>
+              <div class="policy-line">
+                %LOCALAPPDATA%\Temp\chromecrx_chrome_url_fetcher_16684_1196377806\BHLHNICPBHIGNBDHEDGJHGDOCNMHOMNP_4_1_0_0.crx
+              </div>
+              <div class="event-fields">
+                <span
+                  ><b>DeviceFileEvents</b> &middot; Report 37628 /
+                  FileCreated</span
+                ><span
+                  ><b>Initiating process</b> &middot; chrome.exe PID 16684</span
+                ><span><b>Fresh CRX hash</b> &middot; unavailable</span
+                ><span><b>Fresh CRX size/origin</b> &middot; unavailable</span>
+              </div>
+            </div>
+          </div>
+          <div class="event security">
+            <div class="timebox">
+              <div class="time">23:34:53.565-53.588</div>
+              <div class="tz">UTC &middot; isolated unzipper</div>
+            </div>
+            <div class="sourcebox">
+              <div class="source-label">Source</div>
+              <div class="source-stack">
+                <span class="pill blue">Security</span
+                ><span class="pill green">Defender XDR</span>
+              </div>
+            </div>
+            <div class="event-card">
+              <div class="event-title">
+                Chrome starts the low-integrity CRX unzipper
+                <span class="pill blue">Two-source process join</span>
+              </div>
+              <div class="event-desc">
+                Browser PID 16684 creates unzipper PID 17736 with the
+                <span class="mono">unzip.mojom.Unzipper</span> utility role.
+              </div>
+              <div class="event-fields">
+                <span><b>Security</b> &middot; 4688 / Record 2270599</span
+                ><span
+                  ><b>Defender XDR</b> &middot; DeviceProcessEvents Report
+                  37634</span
+                ><span><b>Process</b> &middot; chrome.exe PID 17736</span
+                ><span><b>Integrity</b> &middot; Low / service sandbox</span>
+              </div>
+            </div>
+          </div>
+          <div class="event sysmon">
+            <div class="timebox">
+              <div class="time">23:34:53.928-54.526</div>
+              <div class="tz">UTC &middot; unpack and staging</div>
+            </div>
+            <div class="sourcebox">
+              <div class="source-label">Source</div>
+              <div class="source-stack">
+                <span class="pill amber">Sysmon</span
+                ><span class="pill green">Defender XDR</span>
+              </div>
+            </div>
+            <div class="event-card">
+              <div class="event-title">
+                ColorZilla files are unpacked and staged into CRX_INSTALL
+                <span class="pill amber">Recognizable files</span>
+              </div>
+              <div class="event-desc">
+                Sysmon preserves two file waves: the transient unpacker
+                directory and Chrome profile staging. XDR independently records
+                image assets in the same unpacker transaction.
+              </div>
+              <div class="event-fields">
+                <span><b>Unpacker</b> &middot; Sysmon 461255-461274</span
+                ><span
+                  ><b>Profile staging</b> &middot; Sysmon 461305-461323</span
+                ><span
+                  ><b>Representative files</b> &middot; background-combo.js,
+                  color-history.js, content-script-combo.js</span
+                ><span
+                  ><b>XDR</b> &middot; Reports 37637-37640 and related
+                  rows</span
+                >
+              </div>
+            </div>
+          </div>
+          <div class="event browser">
+            <div class="timebox">
+              <div class="time">23:34:54.337-54.774</div>
+              <div class="tz">UTC &middot; profile activation</div>
+            </div>
+            <div class="sourcebox">
+              <div class="source-label">Source</div>
+              <div class="source-stack">
+                <span class="pill violet">Chrome artifact</span
+                ><span class="pill blue">Security</span
+                ><span class="pill green">Defender XDR</span>
+              </div>
+            </div>
+            <div class="event-card">
+              <div class="event-title">
+                Chrome installs and activates ColorZilla 4.1
+                <span class="pill violet">Install complete</span>
+              </div>
+              <div class="event-desc">
+                The Default profile receives the matching Manifest V3 package
+                and Chrome starts a new low-integrity extension renderer.
+              </div>
+              <div class="event-fields">
+                <span
+                  ><b>Manifest created</b> &middot; 23:34:54.337Z /
+                  <span class="mono">4.1_1\manifest.json</span></span
+                ><span
+                  ><b>Manifest SHA-256</b> &middot;
+                  <span class="mono">9B0E9847...25C1CBBE</span></span
+                ><span
+                  ><b>Security renderer</b> &middot; 4688 / Record 2270603 / PID
+                  13696</span
+                ><span
+                  ><b>XDR renderer</b> &middot; Report 37678 / PID 13696 /
+                  Low</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">02 &middot; Policy semantics</div>
+            <h2>Default deny with persistent managed delivery</h2>
+            <div class="rule"></div>
+          </div>
+          <p>
+            The wildcard block remains in force. ColorZilla is both allowed and
+            force-installed by exact ID; native external registration supplies
+            Chrome's update endpoint.
+          </p>
+        </div>
+        <div class="policy-line">
+          ExtensionInstallBlocklist\1 = *<br />ExtensionInstallAllowlist\5 =
+          bhlhnicpbhignbdhedgjhgdocnmhomnp<br />ExtensionInstallForcelist\1 =
+          bhlhnicpbhignbdhedgjhgdocnmhomnp;https://clients2.google.com/service/update2/crx<br />HKLM\SOFTWARE\Google\Chrome\Extensions\bhlhnicpbhignbdhedgjhgdocnmhomnp\update_URL
+          = https://client2.google.com/service/update2/crx
+        </div>
+        <div class="three" style="margin-top: 16px">
+          <div class="card">
+            <div class="pill red">Wildcard default</div>
+            <h3 style="margin-top: 12px">Unlisted IDs blocked</h3>
+            <p>
+              The existing blocklist wildcard preserves default-deny behavior.
+            </p>
+          </div>
+          <div class="card">
+            <div class="pill green">Exact exception</div>
+            <h3 style="margin-top: 12px">ColorZilla allowed</h3>
+            <p>
+              Allowlist value 5 carries the real 32-character extension ID in
+              both registry views.
+            </p>
+          </div>
+          <div class="card">
+            <div class="pill amber">Managed delivery</div>
+            <h3 style="margin-top: 12px">Force policy retained</h3>
+            <p>
+              Removing the directive caused Chrome to remove this
+              policy-installed package, so the validated steady state retains
+              it.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">03 &middot; Package continuity</div>
+            <h2>
+              Semantic continuity from versioned CRX to active Chrome profile
+            </h2>
+            <div class="rule"></div>
+          </div>
+          <p>
+            The fresh path supports a strong semantic join, but not a
+            cryptographic CRX-to-profile join.
+          </p>
+        </div>
+        <div class="three">
+          <div class="card">
+            <h3><span class="accent-green">XDR acquisition</span></h3>
+            <div class="signal-row">
+              <b>Report</b><span class="mono">37628</span>
+            </div>
+            <div class="signal-row">
+              <b>Time</b><span class="mono">23:34:53.553Z</span>
+            </div>
+            <div class="signal-row">
+              <b>Filename</b><span class="yes">ID + 4_1_0_0.crx</span>
+            </div>
+          </div>
+          <div class="card">
+            <h3><span class="accent-amber">Unpack + staging</span></h3>
+            <div class="signal-row">
+              <b>Security</b><span class="mono">2270599</span>
+            </div>
+            <div class="signal-row">
+              <b>Sysmon</b><span class="mono">461255-323</span>
+            </div>
+            <div class="signal-row">
+              <b>Files</b><span>ColorZilla JS/assets</span>
+            </div>
+          </div>
+          <div class="card">
+            <h3><span class="accent-violet">Chrome state</span></h3>
+            <div class="signal-row">
+              <b>Version</b><span>4.1 / Manifest V3</span>
+            </div>
+            <div class="signal-row">
+              <b>Manifest</b><span class="yes">9B0E9847...CBBE</span>
+            </div>
+            <div class="signal-row">
+              <b>State</b><span class="yes">enabled + worker started</span>
+            </div>
+          </div>
+        </div>
+        <div class="note" style="margin-top: 16px">
+          <strong>Evidence boundary:</strong> XDR's fresh CRX row has an empty
+          size, SHA-1, SHA-256, origin URL, and referrer URL; Sysmon emitted no
+          Event 15 stream hash for that transient file. The historical
+          <span class="mono">CE8E...D8B0</span> package hash is therefore not
+          reused. Continuity is established by the exact versioned package
+          filename, two stages of recognizable unpacked files, the installed
+          product/version, and subsequent renderer activation.
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">04 &middot; Source joins</div>
+            <h2>What each source contributes</h2>
+            <div class="rule"></div>
+          </div>
+          <p>
+            No single source is treated as a complete semantic installation
+            audit.
+          </p>
+        </div>
+        <div class="five">
+          <div class="source-card">
+            <h3><span class="accent-blue">Security log</span></h3>
+            <p>
+              4688 preserves elevated policy commands plus browser,
+              network-service, unzipper, and extension-renderer lineage.
+            </p>
+          </div>
+          <div class="source-card">
+            <h3><span class="accent-cyan">DNS Client</span></h3>
+            <p>
+              3018/3020 supplies PID-attributed WPAD context and proves the
+              absence of extension-specific native resolver rows.
+            </p>
+          </div>
+          <div class="source-card">
+            <h3><span class="accent-amber">Sysmon</span></h3>
+            <p>
+              Events 12/13 preserve T1176 policy values; Event 11 preserves
+              internal unpacking and profile staging.
+            </p>
+          </div>
+          <div class="source-card">
+            <h3><span class="accent-green">Defender XDR</span></h3>
+            <p>
+              Registry, process, network, and file tables preserve managed
+              intent, delivery-window TLS, the CRX, and execution roles.
+            </p>
+          </div>
+          <div class="source-card">
+            <h3><span class="accent-violet">Chrome artifact</span></h3>
+            <p>
+              The installed manifest and Secure Preferences provide product
+              identity, version, permissions, path, enabled state, and worker
+              state.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">05 &middot; Evidence matrix</div>
+            <h2>Direct evidence and bounded gaps</h2>
+            <div class="rule"></div>
+          </div>
+          <p>
+            Green is direct evidence; amber is contextual corroboration; red
+            means the source does not carry that evidence type.
+          </p>
+        </div>
+        <div style="overflow: auto">
+          <table class="evidence-table">
+            <thead>
+              <tr>
+                <th>Evidence</th>
+                <th>Security</th>
+                <th>DNS Client</th>
+                <th>Sysmon</th>
+                <th>Defender XDR</th>
+                <th>Chrome artifact</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Managed policy creation</td>
+                <td class="yes">4688 + command lines</td>
+                <td class="no">Not applicable</td>
+                <td class="yes">T1176 12/13</td>
+                <td class="yes">Registry 37495</td>
+                <td class="no">Not applicable</td>
+              </tr>
+              <tr>
+                <td>Chrome process lineage</td>
+                <td class="yes">2270577/82/99/603</td>
+                <td class="partial">PID 14256 follows</td>
+                <td class="no">Process excluded</td>
+                <td class="yes">37572/5/83/37634/78</td>
+                <td class="partial">Profile follows</td>
+              </tr>
+              <tr>
+                <td>Native resolver context</td>
+                <td class="no">No DNS data</td>
+                <td class="partial">WPAD only</td>
+                <td class="no">Event 22 disabled</td>
+                <td class="partial">Network IPs only</td>
+                <td class="no">No resolver data</td>
+              </tr>
+              <tr>
+                <td>Fresh CRX acquisition</td>
+                <td class="partial">Unzipper follows</td>
+                <td class="no">0 delivery-name rows</td>
+                <td class="partial">Unpacked files follow</td>
+                <td class="yes">File 37628</td>
+                <td class="partial">Matching version follows</td>
+              </tr>
+              <tr>
+                <td>CRX hash and size</td>
+                <td class="no">Unavailable</td>
+                <td class="no">Unavailable</td>
+                <td class="no">No Event 15</td>
+                <td class="no">Fields empty</td>
+                <td class="partial">Manifest only</td>
+              </tr>
+              <tr>
+                <td>Active registration</td>
+                <td class="yes">Renderer 2270603</td>
+                <td class="no">No semantic state</td>
+                <td class="partial">Staging precedes</td>
+                <td class="yes">Renderer 37678</td>
+                <td class="yes">enabled + worker</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">06 &middot; Time normalization</div>
+            <h2>All displayed timestamps are UTC</h2>
+            <div class="rule"></div>
+          </div>
+          <p>
+            The local calendar date was August 27 because the endpoint was
+            UTC+2. UTC source times remain August 26.
+          </p>
+        </div>
+        <div class="four">
+          <div class="card">
+            <h3>Security</h3>
+            <p>
+              Event XML <span class="mono">SystemTime</span> preserves
+              100-nanosecond UTC precision.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Sysmon</h3>
+            <p>
+              <span class="mono">UtcTime</span> is shown directly with
+              sub-millisecond precision.
+            </p>
+          </div>
+          <div class="card">
+            <h3>DNS Client</h3>
+            <p>
+              Operational event times are converted to UTC with seven fractional
+              digits.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Defender XDR / Chrome</h3>
+            <p>
+              Kusto timestamps and NTFS profile times are explicitly normalized
+              to UTC.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">07 &middot; Findings</div>
+            <h2>What the combined evidence establishes</h2>
+            <div class="rule"></div>
+          </div>
+          <p>
+            Claims remain bounded to retained policy, process, resolver,
+            network, package, unpacking, and profile evidence.
+          </p>
+        </div>
+        <div class="four">
+          <div class="card">
+            <div class="pill blue">Managed policy</div>
+            <h3 style="margin-top: 12px">Delivery intent is explicit</h3>
+            <p>
+              Security, Sysmon, and XDR preserve the real ID and Google
+              update-service directive.
+            </p>
+          </div>
+          <div class="card">
+            <div class="pill green">Package</div>
+            <h3 style="margin-top: 12px">A fresh versioned CRX is created</h3>
+            <p>
+              XDR records the exact app ID and version in Chrome's internal
+              URL-fetcher path.
+            </p>
+          </div>
+          <div class="card">
+            <div class="pill amber">Unpacking</div>
+            <h3 style="margin-top: 12px">Three sources converge</h3>
+            <p>
+              Security records the unzipper, Sysmon records two extraction
+              stages, and XDR preserves unpacked assets.
+            </p>
+          </div>
+          <div class="card">
+            <div class="pill violet">Activation</div>
+            <h3 style="margin-top: 12px">Profile state follows</h3>
+            <p>
+              The matching manifest, extension renderer, enabled state, and
+              service worker complete the chain.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">08 &middot; Reproduction queries</div>
+            <h2>Recreate the source joins</h2>
+            <div class="rule"></div>
+          </div>
+          <p>
+            Queries use exact local record IDs, the immutable DeviceId, the real
+            extension ID, and the fresh UTC envelope.
+          </p>
+        </div>
+        <div class="two">
+          <div class="code-card">
+            <div class="code-head">
+              <div class="code-title">Security &middot; policy and process</div>
+              <button class="copy" data-copy="security">Copy</button>
+            </div>
+            <pre id="security">
+$recordIds = 2270538,2270539,2270540,2270541,
+  2270577,2270582,2270599,2270603
+Get-WinEvent -LogName 'Security' |
+  Where-Object RecordId -In $recordIds |
+  Sort-Object TimeCreated</pre
+            >
+          </div>
+          <div class="code-card">
+            <div class="code-head">
+              <div class="code-title">Sysmon &middot; policy and unpacking</div>
+              <button class="copy" data-copy="sysmon">Copy</button>
+            </div>
+            <pre id="sysmon">
+$recordIds = 458987,458988,458994,458995,
+  459001,459002,459008,459009,461255,461256,
+  461259,461260,461305,461312,461315,461316,
+  461317,461318,461319,461320,461322,461323
+Get-WinEvent -LogName 'Microsoft-Windows-Sysmon/Operational' |
+  Where-Object RecordId -In $recordIds |
+  Sort-Object TimeCreated</pre
+            >
+          </div>
+          <div class="code-card">
+            <div class="code-head">
+              <div class="code-title">
+                DNS Client &middot; Chrome PID context
+              </div>
+              <button class="copy" data-copy="dns">Copy</button>
+            </div>
+            <pre id="dns">
+$recordIds = 3026877,3046789
+Get-WinEvent -LogName 'Microsoft-Windows-DNS-Client/Operational' |
+  Where-Object RecordId -In $recordIds |
+  Sort-Object TimeCreated</pre
+            >
+          </div>
+          <div class="code-card">
+            <div class="code-head">
+              <div class="code-title">
+                Defender XDR &middot; managed installation
+              </div>
+              <button class="copy" data-copy="xdr">Copy</button>
+            </div>
+            <pre id="xdr">
+union
+(DeviceRegistryEvents
+ | where Timestamp between
+   (datetime(2026-08-26T23:32:00Z) .. datetime(2026-08-26T23:36:00Z))
+ | where RegistryValueData contains "bhlhnicpbhignbdhedgjhgdocnmhomnp"),
+(DeviceProcessEvents
+ | where Timestamp between
+   (datetime(2026-08-26T23:34:40Z) .. datetime(2026-08-26T23:35:10Z))
+ | where FileName =~ "chrome.exe"),
+(DeviceFileEvents
+ | where Timestamp between
+   (datetime(2026-08-26T23:34:40Z) .. datetime(2026-08-26T23:35:10Z))
+ | where FileName contains "BHLHNICPBHIGNBDHEDGJHGDOCNMHOMNP"
+    or FolderPath contains "chromecrx_chrome_Unpacker_BeginUnzipping16684_2119852996"
+    or FolderPath contains "scoped_dir16684_1012941916"),
+(DeviceNetworkEvents
+ | where Timestamp between
+   (datetime(2026-08-26T23:34:45Z) .. datetime(2026-08-26T23:35:10Z))
+ | where InitiatingProcessFileName =~ "chrome.exe")</pre
+            >
+          </div>
+        </div>
+        <div class="code-card" style="margin-top: 16px">
+          <div class="code-head">
+            <div class="code-title">
+              Active Defender XDR NRT &middot; Google Chrome Extension (CRX)
+              Acquired
+            </div>
+            <button class="copy" data-copy="active-nrt-kql">Copy</button>
+          </div>
+          <pre id="active-nrt-kql">
+DeviceFileEvents&#10;| where ActionType == "FileCreated"&#10;| where InitiatingProcessFileName =~ "chrome.exe"&#10;| where InitiatingProcessCommandLine contains "quarantine.mojom.Quarantine"&#10;| where FileName matches regex @"^[a-p]{32}_[0-9]+\.crx$"&#10;| where FolderPath contains @"\Google\Chrome\User Data\Webstore Downloads\"&#10;| extend CrxFileName=FileName&#10;| extend AppId=extract(@"^([a-p]{32})_", 1, CrxFileName)&#10;| where isnotempty(AppId)&#10;| extend ProductName=AppId&#10;| extend FileName=AppId&#10;| project Timestamp, DeviceId, DeviceName, ReportId, ActionType,&#10;  FileName, AppId, ProductName, CrxFileName, FolderPath,&#10;  FileOriginUrl, FileOriginReferrerUrl, FileSize, SHA1, SHA256,&#10;  InitiatingProcessFileName, InitiatingProcessId,&#10;  InitiatingProcessCommandLine, InitiatingProcessFolderPath,&#10;  InitiatingProcessAccountDomain, InitiatingProcessAccountName,&#10;  InitiatingProcessAccountSid, InitiatingProcessAccountUpn</pre
+          >
+        </div>
+        <div class="note" style="margin-top: 16px">
+          <strong>NRT boundary:</strong> this managed installation used Chrome's
+          internal <span class="mono">chrome_url_fetcher</span> and unpacker
+          paths rather than <span class="mono">Webstore Downloads</span>, and
+          the CRX was created by browser PID 16684 rather than a quarantine
+          utility. The unchanged user-acquisition NRT therefore did not match
+          this workflow; a one-table NRT cannot combine the registry
+          force-install signal with internal package acquisition.
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">09 &middot; Registry attribution</div>
+            <h2>Security exposes commands; Sysmon exposes T1176 mechanics</h2>
+            <div class="rule"></div>
+          </div>
+          <p>
+            The two local sources complement the cloud-retained native
+            force-install signal.
+          </p>
+        </div>
+        <div class="three">
+          <div class="card">
+            <div class="pill blue">Security 4688</div>
+            <h3 style="margin-top: 12px">Readable policy commands</h3>
+            <p>
+              Records 2270538-541 preserve the exact registry views, value
+              indexes, extension ID, and update URL.
+            </p>
+          </div>
+          <div class="card">
+            <div class="pill amber">Sysmon 12/13</div>
+            <h3 style="margin-top: 12px">Object lifecycle and process join</h3>
+            <p>
+              Records 458987-459009 preserve native/WOW key creation and
+              SetValue mechanics under T1176.
+            </p>
+          </div>
+          <div class="card">
+            <div class="pill green">XDR registry</div>
+            <h3 style="margin-top: 12px">Cloud-retained force signal</h3>
+            <p>
+              DeviceRegistryEvents Report 37495 preserves the native
+              force-install value and initiating
+              <span class="mono">reg.exe</span> PID.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">10 &middot; Permissions</div>
+            <h2>ColorZilla access model from the installed manifest</h2>
+            <div class="rule"></div>
+          </div>
+          <p>
+            The enabled Manifest V3 package combines broad page reach with a
+            compact browser API set.
+          </p>
+        </div>
+        <div class="three">
+          <div class="card">
+            <div class="pill red">High-impact scope</div>
+            <h3 style="margin-top: 12px">All URLs</h3>
+            <p>
+              <span class="mono">&lt;all_urls&gt;</span> authorizes extension
+              access across browser-supported web origins.
+            </p>
+          </div>
+          <div class="card">
+            <div class="pill amber">Tab and script context</div>
+            <h3 style="margin-top: 12px">tabs + scripting</h3>
+            <p>
+              ColorZilla can inspect tab context and inject code when its
+              features are invoked.
+            </p>
+          </div>
+          <div class="card">
+            <div class="pill violet">Background execution</div>
+            <h3 style="margin-top: 12px">Service worker started</h3>
+            <p>
+              <span class="mono">js/background-combo.js</span> provides
+              event-driven background behavior.
+            </p>
+          </div>
+        </div>
+        <div class="two" style="margin-top: 16px">
+          <div class="card">
+            <h3><span class="accent-amber">Granted by Chrome profile</span></h3>
+            <div class="permission-list">
+              <span class="permission required">&lt;all_urls&gt;</span
+              ><span class="permission required">tabs</span
+              ><span class="permission required">scripting</span
+              ><span class="permission required">storage</span
+              ><span class="permission required">offscreen</span>
+            </div>
+          </div>
+          <div class="card">
+            <h3><span class="accent-green">Not declared</span></h3>
+            <div class="permission-list">
+              <span class="permission absent">cookies</span
+              ><span class="permission absent">downloads</span
+              ><span class="permission absent">history</span
+              ><span class="permission absent">nativeMessaging</span
+              ><span class="permission absent">webRequest</span
+              ><span class="permission absent">clipboardRead</span>
+            </div>
+          </div>
+        </div>
+        <div class="note" style="margin-top: 16px">
+          <strong>Important distinction:</strong>
+          <span class="mono">withholding_permissions=false</span> means the
+          broad host grant is active rather than withheld.
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">11 &middot; Environment</div>
+            <h2>Capture identity and final endpoint state</h2>
+            <div class="rule"></div>
+          </div>
+          <p>
+            The managed delivery policy is retained because Chrome removed the
+            policy-installed package when the directive was withdrawn.
+          </p>
+        </div>
+        <div class="four">
+          <div class="card">
+            <h3>Google Chrome</h3>
+            <p class="mono">
+              151.0.7922.174<br />Default profile<br />capture browser PID
+              16684<br />network PID 14256
+            </p>
+          </div>
+          <div class="card">
+            <h3>Extension</h3>
+            <p class="mono">
+              ColorZilla 4.1<br />path 4.1_1<br />Manifest V3<br />enabled /
+              worker started
+            </p>
+          </div>
+          <div class="card">
+            <h3>Final policy</h3>
+            <p class="mono">
+              * = blocked<br />allowlist 5 = real ID<br />forcelist 1 = real ID
+              + URL<br />native registration retained
+            </p>
+          </div>
+          <div class="card">
+            <h3>Artifact boundary</h3>
+            <p class="mono">
+              manifest: 1,235 bytes<br />9B0E9847...CBBE<br />fresh CRX
+              hash/size unavailable<br />temporary backups removed
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span
+          >Sources: Windows Security + Microsoft-Windows-DNS-Client/Operational
+          + Microsoft-Windows-Sysmon/Operational + Defender XDR Advanced Hunting
+          + Chrome manifest/Secure Preferences &middot; Report schema
+          <span class="mono"
+            >chrome-colorzilla-managed-installation-timeline/2.0</span
+          ><br /><span
+            style="display: inline-block; margin-top: 8px; color: #92a5bc"
+            >Author: dcodev1702 augmented with GitHub Copilot. Correlation
+            claims are bounded to the retained evidence and limitations stated
+            above.</span
+          ></span
+        ><span
+          >UTC event date: 2026-08-26 &middot; Local capture date: 2026-08-27
+          &middot; Extension: ColorZilla</span
+        >
+      </footer>
+    </div>
+    <script>
+      document.querySelectorAll(".copy").forEach((btn) =>
+        btn.addEventListener("click", async () => {
+          const el = document.getElementById(btn.dataset.copy);
+          try {
+            await navigator.clipboard.writeText(el.innerText);
+            const old = btn.textContent;
+            btn.textContent = "Copied";
+            setTimeout(() => (btn.textContent = old), 1200);
+          } catch (e) {
+            btn.textContent = "Select text";
+          }
+        }),
+      );
+    </script>
+  </body>
+</html>
